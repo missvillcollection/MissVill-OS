@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <base target="_top" />
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1"
+    />
+
+    <title>MissVill OS</title>
+
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        background: #f7f4f2;
+        color: #2f2927;
+      }
+
+      .container {
+        max-width: 480px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+
+      .card {
+        background: white;
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        text-align: center;
+      }
+
+      .profile-image {
+        width: 88px;
+        height: 88px;
+        border-radius: 50%;
+        object-fit: cover;
+        margin-bottom: 12px;
+        display: none;
+      }
+
+      .title {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 12px;
+        background: #f1eeec;
+        word-break: break-word;
+      }
+
+      .error {
+        background: #ffe8e8;
+        color: #a02323;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main class="container">
+      <section class="card">
+        <img id="profileImage" class="profile-image" alt="LINE profile" />
+
+        <h1 class="title">MissVill OS</h1>
+
+        <div id="status" class="status">กำลังเชื่อมต่อกับ LINE...</div>
+      </section>
+    </main>
+
+    <script>
+  const LIFF_ID = "2010777781-rUPome8y";
+  const statusElement = document.getElementById("status");
+  const profileImageElement = document.getElementById("profileImage");
+
+  function showError(message) {
+    statusElement.classList.add("error");
+    statusElement.innerHTML =
+      "<strong>เชื่อมต่อ LINE ไม่สำเร็จ</strong><br><br>" +
+      escapeHtml(message);
+  }
+
+  async function startApp() {
+    try {
+      statusElement.textContent = "โหลด LINE SDK สำเร็จ กำลังเชื่อมต่อ...";
+
+      if (typeof liff === "undefined") {
+        throw new Error("ไม่พบ LINE LIFF SDK");
+      }
+
+      const timeout = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("LINE ใช้เวลาเชื่อมต่อนานเกิน 10 วินาที"));
+        }, 10000);
+      });
+
+      await Promise.race([
+        liff.init({
+          liffId: LIFF_ID,
+          withLoginOnExternalBrowser: true,
+        }),
+        timeout,
+      ]);
+
+      statusElement.textContent = "เชื่อมต่อ LIFF สำเร็จ กำลังอ่านข้อมูลผู้ใช้...";
+
+      if (!liff.isLoggedIn()) {
+        liff.login({
+          redirectUri: window.location.href,
+        });
+        return;
+      }
+
+      const profile = await liff.getProfile();
+
+      if (profile.pictureUrl) {
+        profileImageElement.src = profile.pictureUrl;
+        profileImageElement.style.display = "inline-block";
+      }
+
+      statusElement.classList.remove("error");
+      statusElement.innerHTML = `
+        <strong>เชื่อมต่อ LINE สำเร็จ</strong><br><br>
+        ชื่อ: ${escapeHtml(profile.displayName)}<br>
+        LINE User ID:<br>
+        ${escapeHtml(profile.userId)}
+      `;
+   } catch (error) {
+  console.error("LIFF ERROR:", error);
+
+  const code = error && error.code ? error.code : "NO_CODE";
+  const message =
+    error && error.message
+      ? error.message
+      : "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+
+  showError(`Code: ${code}<br>Message: ${message}`);
+}
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value || "";
+    return div.innerHTML;
+  }
+
+  window.addEventListener("load", startApp);
+</script>
+  </body>
+</html>
