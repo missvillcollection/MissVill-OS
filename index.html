@@ -441,25 +441,25 @@
           userAgent: navigator.userAgent,
         };
 
-        submitAttendancePayload(payload, label);
+        submitAttendance(payload);
       }
 
-      function submitAttendancePayload(payload, label) {
-        const iframeName = "attendanceSubmitFrame";
-        let iframe = document.getElementById(iframeName);
+      function submitAttendance(payload) {
+        const frameName = "attendanceSubmitFrame";
+        let frame = document.getElementById(frameName);
 
-        if (!iframe) {
-          iframe = document.createElement("iframe");
-          iframe.id = iframeName;
-          iframe.name = iframeName;
-          iframe.className = "hidden";
-          document.body.appendChild(iframe);
+        if (!frame) {
+          frame = document.createElement("iframe");
+          frame.id = frameName;
+          frame.name = frameName;
+          frame.className = "hidden";
+          document.body.appendChild(frame);
         }
 
         const form = document.createElement("form");
         form.method = "POST";
         form.action = ATTENDANCE_API_URL;
-        form.target = iframeName;
+        form.target = frameName;
         form.className = "hidden";
 
         const input = document.createElement("input");
@@ -471,18 +471,31 @@
         document.body.appendChild(form);
         form.submit();
         form.remove();
+      }
 
-        window.setTimeout(function () {
-          const now = new Date();
+      function handleAttendanceResponse(event) {
+        if (event.origin !== "https://script.google.com") {
+          return;
+        }
 
-          statusElement.className = "status success";
-          statusElement.innerHTML = `
-            <strong>${label} สำเร็จ</strong><br><br>
-            ชื่อ: ${escapeHtml(currentProfile.displayName)}<br>
-            เวลา: ${escapeHtml(now.toLocaleString("th-TH"))}<br>
-            GPS Accuracy: ${currentLocation.accuracy} เมตร
-          `;
-        }, 1800);
+        const data = event.data;
+
+        if (!data || typeof data !== "object") {
+          return;
+        }
+
+        if (!data.ok) {
+          showError(data.message || "บันทึกไม่สำเร็จ");
+          return;
+        }
+
+        statusElement.className = "status success";
+        statusElement.innerHTML = `
+          <strong>${escapeHtml(data.message)}</strong><br><br>
+          ชื่อ: ${escapeHtml(data.employeeName || currentProfile.displayName)}<br>
+          เวลา: ${escapeHtml(data.serverTime)}<br>
+          GPS Accuracy: ${currentLocation.accuracy} เมตร
+        `;
       }
 
       function stopCamera() {
@@ -500,6 +513,7 @@
         `;
       }
 
+      window.addEventListener("message", handleAttendanceResponse);
       window.addEventListener("pagehide", stopCamera);
       window.addEventListener("beforeunload", stopCamera);
       window.addEventListener("load", startApp);
