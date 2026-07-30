@@ -473,10 +473,21 @@
         form.remove();
       }
 
-      function handleAttendanceResponse(event) {
-        if (event.origin !== "https://script.google.com") {
-          return;
-        }
+     function handleAttendanceResponse(event) {
+  const allowedOrigins = [
+    "https://script.google.com",
+    "https://script.googleusercontent.com",
+  ];
+
+  const isAllowedOrigin = allowedOrigins.some(
+    (origin) =>
+      event.origin === origin ||
+      event.origin.endsWith(".googleusercontent.com")
+  );
+
+  if (!isAllowedOrigin) {
+    return;
+  }
 
         const data = event.data;
 
