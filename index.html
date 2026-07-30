@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 <html lang="th">
   <head>
-    <base target="_top" />
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
     />
-
     <title>MissVill OS</title>
-
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
     <style>
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         font-family: Arial, sans-serif;
         margin: 0;
@@ -50,8 +51,8 @@
 
       .status {
         margin-top: 16px;
-        padding: 12px;
-        border-radius: 12px;
+        padding: 16px;
+        border-radius: 14px;
         background: #f1eeec;
         word-break: break-word;
       }
@@ -59,18 +60,67 @@
       .error {
         background: #ffe8e8;
         color: #a02323;
-}
+      }
+
+      .success {
+        background: #eaf8ee;
+        color: #176b35;
+      }
+
+      .action-button,
+      .secondary-button {
+        width: 100%;
+        border: 0;
+        border-radius: 14px;
+        padding: 16px;
+        font-size: 17px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
       .action-button {
-  width: 100%;
-  border: 0;
-  border-radius: 14px;
-  padding: 16px;
-  font-size: 18px;
-  font-weight: 700;
-  background: #2f2927;
-  color: white;
-  cursor: pointer;
-}
+        background: #2f2927;
+        color: white;
+      }
+
+      .secondary-button {
+        margin-top: 10px;
+        background: #e8e2df;
+        color: #2f2927;
+      }
+
+      .camera-wrap {
+        margin: 14px 0;
+        overflow: hidden;
+        border-radius: 16px;
+        background: #111;
+      }
+
+      video,
+      canvas,
+      .photo-preview {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        object-fit: cover;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .gps-info {
+        margin: 12px 0;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .hint {
+        margin-top: 10px;
+        color: #6f6662;
+        font-size: 13px;
+        line-height: 1.5;
+      }
     </style>
   </head>
 
@@ -78,182 +128,319 @@
     <main class="container">
       <section class="card">
         <img id="profileImage" class="profile-image" alt="LINE profile" />
-
         <h1 class="title">MissVill OS</h1>
-
         <div id="status" class="status">กำลังเชื่อมต่อกับ LINE...</div>
       </section>
     </main>
 
     <script>
-  const LIFF_ID = "2010777781-rUPome8y";
-  const statusElement = document.getElementById("status");
-  const profileImageElement = document.getElementById("profileImage");
+      const LIFF_ID = "2010777781-rUPome8y";
 
-  function showError(message) {
-    statusElement.classList.add("error");
-    statusElement.innerHTML =
-      "<strong>เชื่อมต่อ LINE ไม่สำเร็จ</strong><br><br>" +
-      escapeHtml(message);
-  }
+      const statusElement = document.getElementById("status");
+      const profileImageElement = document.getElementById("profileImage");
 
-  async function startApp() {
-    try {
-      statusElement.textContent = "โหลด LINE SDK สำเร็จ กำลังเชื่อมต่อ...";
+      let currentProfile = null;
+      let currentAction = "home";
+      let currentLocation = null;
+      let cameraStream = null;
+      let capturedPhoto = null;
 
-      if (typeof liff === "undefined") {
-        throw new Error("ไม่พบ LINE LIFF SDK");
+      function escapeHtml(value) {
+        const div = document.createElement("div");
+        div.textContent = value || "";
+        return div.innerHTML;
       }
 
-      const timeout = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error("LINE ใช้เวลาเชื่อมต่อนานเกิน 10 วินาที"));
-        }, 10000);
-      });
+      function showError(message) {
+        stopCamera();
+        statusElement.className = "status error";
+        statusElement.innerHTML =
+          "<strong>เกิดข้อผิดพลาด</strong><br><br>" +
+          escapeHtml(message).replace(/\n/g, "<br>");
+      }
 
-      await Promise.race([
-        liff.init({
-          liffId: LIFF_ID,
-          withLoginOnExternalBrowser: true,
-        }),
-        timeout,
-      ]);
+      function readAction() {
+        const params = new URLSearchParams(window.location.search);
+        let action = params.get("action");
 
-      statusElement.textContent = "เชื่อมต่อ LIFF สำเร็จ กำลังอ่านข้อมูลผู้ใช้...";
-const params = new URLSearchParams(window.location.search);
+        if (!action) {
+          const liffState = params.get("liff.state");
 
-let action = params.get("action");
+          if (liffState) {
+            const decodedState = decodeURIComponent(liffState);
+            const stateQuery = decodedState.includes("?")
+              ? decodedState.split("?")[1]
+              : decodedState;
 
-if (!action) {
-  const liffState = params.get("liff.state");
+            action = new URLSearchParams(stateQuery).get("action");
+          }
+        }
 
-  if (liffState) {
-    const decodedState = decodeURIComponent(liffState);
-    const stateQuery = decodedState.includes("?")
-      ? decodedState.split("?")[1]
-      : decodedState;
+        return action || "home";
+      }
 
-    const stateParams = new URLSearchParams(stateQuery);
-    action = stateParams.get("action");
-  }
-}
+      async function startApp() {
+        try {
+          if (typeof liff === "undefined") {
+            throw new Error("ไม่พบ LINE LIFF SDK");
+          }
 
-action = action || "home";
-      if (!liff.isLoggedIn()) {
-        liff.login({
-          redirectUri: window.location.href,
+          statusElement.textContent = "กำลังเชื่อมต่อกับ LINE...";
+
+          await liff.init({
+            liffId: LIFF_ID,
+            withLoginOnExternalBrowser: true,
+          });
+
+          if (!liff.isLoggedIn()) {
+            liff.login({
+              redirectUri: window.location.href,
+            });
+            return;
+          }
+
+          currentAction = readAction();
+          currentProfile = await liff.getProfile();
+
+          if (currentProfile.pictureUrl) {
+            profileImageElement.src = currentProfile.pictureUrl;
+            profileImageElement.style.display = "inline-block";
+          }
+
+          if (currentAction === "clockin" || currentAction === "clockout") {
+            showAttendanceStartPage();
+            return;
+          }
+
+          if (currentAction === "history") {
+            showComingSoon("ประวัติการเข้างาน");
+            return;
+          }
+
+          if (currentAction === "leave") {
+            showComingSoon("คำขอลา");
+            return;
+          }
+
+          statusElement.className = "status";
+          statusElement.innerHTML = `
+            <strong>เชื่อมต่อ LINE สำเร็จ</strong><br><br>
+            ชื่อ: ${escapeHtml(currentProfile.displayName)}
+          `;
+        } catch (error) {
+          console.error("LIFF ERROR:", error);
+
+          const code = error && error.code ? error.code : "NO_CODE";
+          const message =
+            error && error.message
+              ? error.message
+              : "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+
+          showError(`Code: ${code}\nMessage: ${message}`);
+        }
+      }
+
+      function showAttendanceStartPage() {
+        const label = currentAction === "clockin" ? "Clock In" : "Clock Out";
+        const buttonLabel =
+          currentAction === "clockin"
+            ? "เริ่มเช็กอินเข้างาน"
+            : "เริ่มเช็กเอาต์ออกงาน";
+
+        statusElement.className = "status";
+        statusElement.innerHTML = `
+          <strong>${label}</strong><br><br>
+          สวัสดี ${escapeHtml(currentProfile.displayName)}<br><br>
+          <button class="action-button" onclick="requestLocationAndCamera()">
+            ${buttonLabel}
+          </button>
+          <p class="hint">ระบบจะขอ GPS และเปิดกล้องหน้าเพื่อถ่ายรูปสด</p>
+        `;
+      }
+
+      function requestLocationAndCamera() {
+        if (!navigator.geolocation) {
+          showError("โทรศัพท์เครื่องนี้ไม่รองรับ GPS");
+          return;
+        }
+
+        statusElement.className = "status";
+        statusElement.textContent = "กำลังอ่านตำแหน่ง GPS...";
+
+        navigator.geolocation.getCurrentPosition(
+          async function (position) {
+            currentLocation = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: Math.round(position.coords.accuracy),
+            };
+
+            try {
+              await showLiveCamera();
+            } catch (error) {
+              showError(
+                "ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องใน LINE แล้วลองใหม่: " +
+                  (error.message || error)
+              );
+            }
+          },
+          function (error) {
+            showError("ไม่สามารถอ่าน GPS ได้: " + error.message);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          }
+        );
+      }
+
+      async function showLiveCamera() {
+        capturedPhoto = null;
+        stopCamera();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("อุปกรณ์นี้ไม่รองรับการเปิดกล้องสด");
+        }
+
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: "user",
+            width: { ideal: 720 },
+            height: { ideal: 960 },
+          },
         });
-        return;
+
+        statusElement.className = "status";
+        statusElement.innerHTML = `
+          <strong>ถ่ายรูปยืนยันตัวตน</strong>
+
+          <div class="gps-info">
+            GPS พร้อม · ความแม่นยำ ${currentLocation.accuracy} เมตร
+          </div>
+
+          <div class="camera-wrap">
+            <video id="cameraVideo" autoplay muted playsinline></video>
+            <canvas id="photoCanvas" class="hidden"></canvas>
+            <img
+              id="photoPreview"
+              class="photo-preview hidden"
+              alt="ภาพยืนยันตัวตน"
+            />
+          </div>
+
+          <button
+            id="captureButton"
+            class="action-button"
+            onclick="capturePhoto()"
+          >
+            ถ่ายรูป
+          </button>
+
+          <button
+            id="retakeButton"
+            class="secondary-button hidden"
+            onclick="retakePhoto()"
+          >
+            ถ่ายใหม่
+          </button>
+
+          <button
+            id="confirmButton"
+            class="action-button hidden"
+            style="margin-top: 10px"
+            onclick="confirmAttendance()"
+          >
+            ยืนยัน ${currentAction === "clockin" ? "Clock In" : "Clock Out"}
+          </button>
+
+          <p class="hint">
+            ใช้กล้องสดเท่านั้น ไม่มีปุ่มเลือกรูปจากอัลบั้ม
+          </p>
+        `;
+
+        const video = document.getElementById("cameraVideo");
+        video.srcObject = cameraStream;
+        await video.play();
       }
 
-      const profile = await liff.getProfile();
-if (action === "clockin") {
-  showClockInPage(profile);
-  return;
-}
+      function capturePhoto() {
+        const video = document.getElementById("cameraVideo");
+        const canvas = document.getElementById("photoCanvas");
+        const preview = document.getElementById("photoPreview");
 
-if (action === "clockout") {
-  showClockOutPage(profile);
-  return;
-}
+        if (!video || video.readyState < 2) {
+          showError("กล้องยังไม่พร้อม กรุณารอสักครู่แล้วลองใหม่");
+          return;
+        }
 
-if (action === "history") {
-  showComingSoon("ประวัติการเข้างาน");
-  return;
-}
+        const targetWidth = 600;
+        const targetHeight = Math.round(
+          targetWidth * (video.videoHeight / video.videoWidth)
+        );
 
-if (action === "leave") {
-  showComingSoon("คำขอลา");
-  return;
-}
-      if (profile.pictureUrl) {
-        profileImageElement.src = profile.pictureUrl;
-        profileImageElement.style.display = "inline-block";
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+
+        canvas
+          .getContext("2d")
+          .drawImage(video, 0, 0, targetWidth, targetHeight);
+
+        capturedPhoto = canvas.toDataURL("image/jpeg", 0.78);
+        preview.src = capturedPhoto;
+
+        video.classList.add("hidden");
+        preview.classList.remove("hidden");
+
+        document.getElementById("captureButton").classList.add("hidden");
+        document.getElementById("retakeButton").classList.remove("hidden");
+        document.getElementById("confirmButton").classList.remove("hidden");
+
+        stopCamera();
       }
 
-      statusElement.classList.remove("error");
-      statusElement.innerHTML = `
-        <strong>เชื่อมต่อ LINE สำเร็จ</strong><br><br>
-        ชื่อ: ${escapeHtml(profile.displayName)}<br>
-        LINE User ID:<br>
-        ${escapeHtml(profile.userId)}
-      `;
-   } catch (error) {
-  console.error("LIFF ERROR:", error);
+      async function retakePhoto() {
+        await showLiveCamera();
+      }
 
-  const code = error && error.code ? error.code : "NO_CODE";
-  const message =
-    error && error.message
-      ? error.message
-      : "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+      function confirmAttendance() {
+        if (!capturedPhoto || !currentLocation || !currentProfile) {
+          showError("ข้อมูลยังไม่ครบ กรุณาถ่ายรูปและเปิด GPS ใหม่อีกครั้ง");
+          return;
+        }
 
-  showError(`Code: ${code}<br>Message: ${message}`);
-}
-  }
-function showClockInPage(profile) {
-  statusElement.classList.remove("error");
-  statusElement.innerHTML = `
-    <strong>Clock In</strong><br><br>
-    สวัสดี ${escapeHtml(profile.displayName)}<br><br>
-    <button class="action-button" onclick="requestLocation('clockin')">
-      เช็กอินเข้างาน
-    </button>
-  `;
-}
+        const label = currentAction === "clockin" ? "Clock In" : "Clock Out";
+        const now = new Date();
 
-function showClockOutPage(profile) {
-  statusElement.classList.remove("error");
-  statusElement.innerHTML = `
-    <strong>Clock Out</strong><br><br>
-    สวัสดี ${escapeHtml(profile.displayName)}<br><br>
-    <button class="action-button" onclick="requestLocation('clockout')">
-      เช็กเอาต์ออกงาน
-    </button>
-  `;
-}
+        statusElement.className = "status success";
+        statusElement.innerHTML = `
+          <strong>${label} พร้อมส่งข้อมูลแล้ว</strong><br><br>
+          ชื่อ: ${escapeHtml(currentProfile.displayName)}<br>
+          เวลา: ${escapeHtml(now.toLocaleString("th-TH"))}<br>
+          GPS Accuracy: ${currentLocation.accuracy} เมตร<br><br>
+          <span>ขั้นต่อไปคือบันทึกลง Staff Database</span>
+        `;
+      }
 
-function showComingSoon(title) {
-  statusElement.classList.remove("error");
-  statusElement.innerHTML = `
-    <strong>${escapeHtml(title)}</strong><br><br>
-    กำลังพัฒนาหน้านี้
-  `;
-}
+      function stopCamera() {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+          cameraStream = null;
+        }
+      }
 
-function requestLocation(action) {
-  statusElement.textContent = "กำลังขอตำแหน่ง GPS...";
+      function showComingSoon(title) {
+        statusElement.className = "status";
+        statusElement.innerHTML = `
+          <strong>${escapeHtml(title)}</strong><br><br>
+          กำลังพัฒนาหน้านี้
+        `;
+      }
 
-  if (!navigator.geolocation) {
-    showError("โทรศัพท์เครื่องนี้ไม่รองรับ GPS");
-    return;
-  }
-
-  navigator.geolocation.getCurrentPosition(
-    function (position) {
-      statusElement.innerHTML = `
-        <strong>${action === "clockin" ? "พร้อม Clock In" : "พร้อม Clock Out"}</strong><br><br>
-        Latitude: ${position.coords.latitude}<br>
-        Longitude: ${position.coords.longitude}<br>
-        Accuracy: ${Math.round(position.coords.accuracy)} เมตร
-      `;
-    },
-    function (error) {
-      showError("ไม่สามารถอ่าน GPS ได้: " + error.message);
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 0,
-    }
-  );
-}
-  function escapeHtml(value) {
-    const div = document.createElement("div");
-    div.textContent = value || "";
-    return div.innerHTML;
-  }
-
-  window.addEventListener("load", startApp);
-</script>
+      window.addEventListener("pagehide", stopCamera);
+      window.addEventListener("beforeunload", stopCamera);
+      window.addEventListener("load", startApp);
+    </script>
   </body>
 </html>
