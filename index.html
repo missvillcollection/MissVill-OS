@@ -59,7 +59,17 @@
       .error {
         background: #ffe8e8;
         color: #a02323;
-      }
+      }.action-button {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 16px;
+  font-size: 18px;
+  font-weight: 700;
+  background: #2f2927;
+  color: white;
+  cursor: pointer;
+}
     </style>
   </head>
 
@@ -109,7 +119,8 @@
       ]);
 
       statusElement.textContent = "เชื่อมต่อ LIFF สำเร็จ กำลังอ่านข้อมูลผู้ใช้...";
-
+const params = new URLSearchParams(window.location.search);
+const action = params.get("action") || "home";
       if (!liff.isLoggedIn()) {
         liff.login({
           redirectUri: window.location.href,
@@ -118,7 +129,25 @@
       }
 
       const profile = await liff.getProfile();
+if (action === "clockin") {
+  showClockInPage(profile);
+  return;
+}
 
+if (action === "clockout") {
+  showClockOutPage(profile);
+  return;
+}
+
+if (action === "history") {
+  showComingSoon("ประวัติการเข้างาน");
+  return;
+}
+
+if (action === "leave") {
+  showComingSoon("คำขอลา");
+  return;
+}
       if (profile.pictureUrl) {
         profileImageElement.src = profile.pictureUrl;
         profileImageElement.style.display = "inline-block";
@@ -143,7 +172,63 @@
   showError(`Code: ${code}<br>Message: ${message}`);
 }
   }
+function showClockInPage(profile) {
+  statusElement.classList.remove("error");
+  statusElement.innerHTML = `
+    <strong>Clock In</strong><br><br>
+    สวัสดี ${escapeHtml(profile.displayName)}<br><br>
+    <button class="action-button" onclick="requestLocation('clockin')">
+      เช็กอินเข้างาน
+    </button>
+  `;
+}
 
+function showClockOutPage(profile) {
+  statusElement.classList.remove("error");
+  statusElement.innerHTML = `
+    <strong>Clock Out</strong><br><br>
+    สวัสดี ${escapeHtml(profile.displayName)}<br><br>
+    <button class="action-button" onclick="requestLocation('clockout')">
+      เช็กเอาต์ออกงาน
+    </button>
+  `;
+}
+
+function showComingSoon(title) {
+  statusElement.classList.remove("error");
+  statusElement.innerHTML = `
+    <strong>${escapeHtml(title)}</strong><br><br>
+    กำลังพัฒนาหน้านี้
+  `;
+}
+
+function requestLocation(action) {
+  statusElement.textContent = "กำลังขอตำแหน่ง GPS...";
+
+  if (!navigator.geolocation) {
+    showError("โทรศัพท์เครื่องนี้ไม่รองรับ GPS");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    function (position) {
+      statusElement.innerHTML = `
+        <strong>${action === "clockin" ? "พร้อม Clock In" : "พร้อม Clock Out"}</strong><br><br>
+        Latitude: ${position.coords.latitude}<br>
+        Longitude: ${position.coords.longitude}<br>
+        Accuracy: ${Math.round(position.coords.accuracy)} เมตร
+      `;
+    },
+    function (error) {
+      showError("ไม่สามารถอ่าน GPS ได้: " + error.message);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    }
+  );
+}
   function escapeHtml(value) {
     const div = document.createElement("div");
     div.textContent = value || "";
