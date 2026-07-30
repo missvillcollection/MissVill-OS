@@ -59,7 +59,8 @@
       .error {
         background: #ffe8e8;
         color: #a02323;
-      }.action-button {
+}
+      .action-button {
   width: 100%;
   border: 0;
   border-radius: 14px;
@@ -120,7 +121,24 @@
 
       statusElement.textContent = "เชื่อมต่อ LIFF สำเร็จ กำลังอ่านข้อมูลผู้ใช้...";
 const params = new URLSearchParams(window.location.search);
-const action = params.get("action") || "home";
+
+let action = params.get("action");
+
+if (!action) {
+  const liffState = params.get("liff.state");
+
+  if (liffState) {
+    const decodedState = decodeURIComponent(liffState);
+    const stateQuery = decodedState.includes("?")
+      ? decodedState.split("?")[1]
+      : decodedState;
+
+    const stateParams = new URLSearchParams(stateQuery);
+    action = stateParams.get("action");
+  }
+}
+
+action = action || "home";
       if (!liff.isLoggedIn()) {
         liff.login({
           redirectUri: window.location.href,
