@@ -97,8 +97,15 @@
       }
 
       video,
-      canvas,
       .photo-preview {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        object-fit: cover;
+        transform: scaleX(-1);
+      }
+
+      canvas {
         display: block;
         width: 100%;
         aspect-ratio: 3 / 4;
@@ -383,9 +390,12 @@
         canvas.width = targetWidth;
         canvas.height = targetHeight;
 
-        canvas
-          .getContext("2d")
-          .drawImage(video, 0, 0, targetWidth, targetHeight);
+        const context = canvas.getContext("2d");
+        context.save();
+        context.translate(targetWidth, 0);
+        context.scale(-1, 1);
+        context.drawImage(video, 0, 0, targetWidth, targetHeight);
+        context.restore();
 
         capturedPhoto = canvas.toDataURL("image/jpeg", 0.78);
         preview.src = capturedPhoto;
@@ -415,11 +425,10 @@
 
         statusElement.className = "status success";
         statusElement.innerHTML = `
-          <strong>${label} พร้อมส่งข้อมูลแล้ว</strong><br><br>
+          <strong>${label} สำเร็จ</strong><br><br>
           ชื่อ: ${escapeHtml(currentProfile.displayName)}<br>
           เวลา: ${escapeHtml(now.toLocaleString("th-TH"))}<br>
-          GPS Accuracy: ${currentLocation.accuracy} เมตร<br><br>
-          <span>ขั้นต่อไปคือบันทึกลง Staff Database</span>
+          GPS Accuracy: ${currentLocation.accuracy} เมตร
         `;
       }
 
