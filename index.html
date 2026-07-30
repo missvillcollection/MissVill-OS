@@ -142,6 +142,8 @@
 
     <script>
       const LIFF_ID = "2010777781-rUPome8y";
+      const ATTENDANCE_API_URL =
+        "https://script.google.com/macros/s/AKfycbyY1OP8umg--3Fio6SBH_76Oyqxeva78wWC-XE0TLlnPGilsSTEWDwre3w_FFn-3gOZCw/exec";
 
       const statusElement = document.getElementById("status");
       const profileImageElement = document.getElementById("profileImage");
@@ -421,15 +423,66 @@
         }
 
         const label = currentAction === "clockin" ? "Clock In" : "Clock Out";
-        const now = new Date();
 
-        statusElement.className = "status success";
+        statusElement.className = "status";
         statusElement.innerHTML = `
-          <strong>${label} สำเร็จ</strong><br><br>
-          ชื่อ: ${escapeHtml(currentProfile.displayName)}<br>
-          เวลา: ${escapeHtml(now.toLocaleString("th-TH"))}<br>
-          GPS Accuracy: ${currentLocation.accuracy} เมตร
+          <strong>กำลังบันทึก ${label}...</strong><br><br>
+          กรุณาอย่าปิดหน้านี้
         `;
+
+        const payload = {
+          action: currentAction,
+          lineUserId: currentProfile.userId,
+          lineDisplayName: currentProfile.displayName,
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          photoDataUrl: capturedPhoto,
+          userAgent: navigator.userAgent,
+        };
+
+        submitAttendancePayload(payload, label);
+      }
+
+      function submitAttendancePayload(payload, label) {
+        const iframeName = "attendanceSubmitFrame";
+        let iframe = document.getElementById(iframeName);
+
+        if (!iframe) {
+          iframe = document.createElement("iframe");
+          iframe.id = iframeName;
+          iframe.name = iframeName;
+          iframe.className = "hidden";
+          document.body.appendChild(iframe);
+        }
+
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = ATTENDANCE_API_URL;
+        form.target = iframeName;
+        form.className = "hidden";
+
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "payload";
+        input.value = JSON.stringify(payload);
+
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+        form.remove();
+
+        window.setTimeout(function () {
+          const now = new Date();
+
+          statusElement.className = "status success";
+          statusElement.innerHTML = `
+            <strong>${label} สำเร็จ</strong><br><br>
+            ชื่อ: ${escapeHtml(currentProfile.displayName)}<br>
+            เวลา: ${escapeHtml(now.toLocaleString("th-TH"))}<br>
+            GPS Accuracy: ${currentLocation.accuracy} เมตร
+          `;
+        }, 1800);
       }
 
       function stopCamera() {
