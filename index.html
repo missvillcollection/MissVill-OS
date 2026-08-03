@@ -440,7 +440,8 @@
           photoDataUrl: capturedPhoto,
           userAgent: navigator.userAgent,
         };
-
+submitAttendance(payload);
+}
  let attendanceTimeout = null;
 let pendingAttendanceAction = null;
 
@@ -509,7 +510,6 @@ attendanceTimeout = window.setTimeout(function () {
     } เมตร
   `;
 }, 3000);
-}
 }
 function showAttendanceStartPage() {
   const label =
