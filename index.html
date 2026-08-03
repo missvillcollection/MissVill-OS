@@ -602,7 +602,7 @@ function handleAttendanceResponse(event) {
         `;
       }
 
-      window.addEventListener("message", handleAttendanceResponse);
+      
       window.addEventListener("pagehide", stopCamera);
       window.addEventListener("beforeunload", stopCamera);
       window.addEventListener("load", startApp);
