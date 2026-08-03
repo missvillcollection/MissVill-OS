@@ -473,7 +473,7 @@
         form.remove();
       }
 
-     function handleAttendanceResponse(event) {
+function handleAttendanceResponse(event) {
   const data = event.data;
 
   if (
@@ -492,7 +492,9 @@
   statusElement.className = "status success";
   statusElement.innerHTML = `
     <strong>${escapeHtml(data.message)}</strong><br><br>
-    ชื่อ: ${escapeHtml(data.employeeName || currentProfile.displayName)}<br>
+    ชื่อ: ${escapeHtml(
+      data.employeeName || currentProfile.displayName
+    )}<br>
     เวลา: ${escapeHtml(data.serverTime)}<br>
     GPS Accuracy: ${currentLocation.accuracy} เมตร
   `;
