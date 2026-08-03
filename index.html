@@ -474,41 +474,29 @@
       }
 
      function handleAttendanceResponse(event) {
-  const allowedOrigins = [
-    "https://script.google.com",
-    "https://script.googleusercontent.com",
-  ];
+  const data = event.data;
 
-  const isAllowedOrigin = allowedOrigins.some(
-    (origin) =>
-      event.origin === origin ||
-      event.origin.endsWith(".googleusercontent.com")
-  );
-
-  if (!isAllowedOrigin) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.ok !== "boolean"
+  ) {
     return;
   }
 
-        const data = event.data;
+  if (!data.ok) {
+    showError(data.message || "บันทึกไม่สำเร็จ");
+    return;
+  }
 
-        if (!data || typeof data !== "object") {
-          return;
-        }
-
-        if (!data.ok) {
-          showError(data.message || "บันทึกไม่สำเร็จ");
-          return;
-        }
-
-        statusElement.className = "status success";
-        statusElement.innerHTML = `
-          <strong>${escapeHtml(data.message)}</strong><br><br>
-          ชื่อ: ${escapeHtml(data.employeeName || currentProfile.displayName)}<br>
-          เวลา: ${escapeHtml(data.serverTime)}<br>
-          GPS Accuracy: ${currentLocation.accuracy} เมตร
-        `;
-      }
-
+  statusElement.className = "status success";
+  statusElement.innerHTML = `
+    <strong>${escapeHtml(data.message)}</strong><br><br>
+    ชื่อ: ${escapeHtml(data.employeeName || currentProfile.displayName)}<br>
+    เวลา: ${escapeHtml(data.serverTime)}<br>
+    GPS Accuracy: ${currentLocation.accuracy} เมตร
+  `;
+}
       function stopCamera() {
         if (cameraStream) {
           cameraStream.getTracks().forEach((track) => track.stop());
