@@ -476,15 +476,17 @@
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
           accuracy: currentLocation.accuracy,
+          workplace: selectedWorkplace,
           photoDataUrl: capturedPhoto,
           userAgent: navigator.userAgent,
         };
-submitAttendance(payload);
-}
- let attendanceTimeout = null;
-let pendingAttendanceAction = null;
+        submitAttendance(payload);
+      }
 
-function submitAttendance(payload) {
+      let attendanceTimeout = null;
+      let pendingAttendanceAction = null;
+
+      function submitAttendance(payload) {
   pendingAttendanceAction = payload.action;
 
   statusElement.className = "status";
@@ -524,11 +526,11 @@ function submitAttendance(payload) {
   form.submit();
   form.remove();
 
-clearTimeout(attendanceTimeout);
+        clearTimeout(attendanceTimeout);
 
-const submittedAt = new Date();
+        const submittedAt = new Date();
 
-attendanceTimeout = window.setTimeout(function () {
+        attendanceTimeout = window.setTimeout(function () {
   const label =
     payload.action === "clockout"
       ? "Clock Out เรียบร้อยแล้ว"
@@ -548,61 +550,12 @@ attendanceTimeout = window.setTimeout(function () {
       currentLocation ? currentLocation.accuracy : "-"
     } เมตร
   `;
-}, 3000);
-}
-function showAttendanceStartPage() {
-  const label =
-    currentAction === "clockin" ? "Clock In" : "Clock Out";
+        }, 3000);
+      }
 
-  const buttonLabel =
-    currentAction === "clockin"
-      ? "เริ่มเช็กอินเข้างาน"
-      : "เริ่มเช็กเอาต์ออกงาน";
+      let selectedWorkplace = "";
 
-  statusElement.className = "status";
-  statusElement.innerHTML = `
-    <strong>${label}</strong><br><br>
-
-    สวัสดี ${escapeHtml(currentProfile.displayName)}<br><br>
-
-    <label for="workplaceSelect">
-      <strong>วันนี้ทำงานที่ไหน?</strong>
-    </label>
-
-    <select
-      id="workplaceSelect"
-      style="
-        width: 100%;
-        margin: 12px 0 16px;
-        padding: 14px;
-        border: 1px solid #d8cfca;
-        border-radius: 12px;
-        background: white;
-        font-size: 16px;
-      "
-    >
-      <option value="">กรุณาเลือกสถานที่</option>
-      <option value="Office">Office</option>
-      <option value="Platinum">Platinum</option>
-      <option value="Remote">Remote</option>
-    </select>
-
-    <button
-  id="startAttendanceButton"
-  class="action-button"
-  type="button"
->
-      ${buttonLabel}
-    </button>
-
-    <p class="hint">
-      ระบบจะขอ GPS และเปิดกล้องหน้าเพื่อถ่ายรูปสด
-    </p>
-  `;
-}
-let selectedWorkplace = "";
-
-function startAttendanceWithLocation() {
+      function startAttendanceWithLocation() {
   const select = document.getElementById("workplaceSelect");
 
   if (!select) {
@@ -619,7 +572,7 @@ function startAttendanceWithLocation() {
 
   requestLocationAndCamera();
 }
-function handleAttendanceResponse(event) {
+      function handleAttendanceResponse(event) {
   const data = event.data;
 
   if (
