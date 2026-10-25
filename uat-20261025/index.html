@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>MissVill OS — ระบบทดสอบ</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        background: #f7f4f2;
+        color: #2f2927;
+      }
+
+      .container {
+        max-width: 480px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+
+      .card {
+        background: white;
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        text-align: center;
+      }
+
+      .profile-image {
+        width: 88px;
+        height: 88px;
+        border-radius: 50%;
+        object-fit: cover;
+        margin-bottom: 12px;
+        display: none;
+      }
+
+      .title {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 14px;
+        background: #f1eeec;
+        word-break: break-word;
+      }
+
+      .error {
+        background: #ffe8e8;
+        color: #a02323;
+      }
+
+      .success {
+        background: #eaf8ee;
+        color: #176b35;
+      }
+
+      .action-button,
+      .secondary-button {
+        width: 100%;
+        border: 0;
+        border-radius: 14px;
+        padding: 16px;
+        font-size: 17px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .action-button {
+        background: #2f2927;
+        color: white;
+      }
+
+      .secondary-button {
+        margin-top: 10px;
+        background: #e8e2df;
+        color: #2f2927;
+      }
+
+      .camera-wrap {
+        margin: 14px 0;
+        overflow: hidden;
+        border-radius: 16px;
+        background: #111;
+      }
+
+      video,
+      .photo-preview {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        object-fit: cover;
+        transform: scaleX(-1);
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        object-fit: cover;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .gps-info {
+        margin: 12px 0;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .hint {
+        margin-top: 10px;
+        color: #6f6662;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main class="container">
+      <section class="card">
+        <img id="profileImage" class="profile-image" alt="LINE profile" />
+        <h1 class="title">MissVill OS · ทดสอบ</h1>
+        <div id="status" class="status">กำลังเชื่อมต่อกับ LINE...</div>
+      </section>
+    </main>
+
+    <script>
+      const LIFF_ID = "2010777781-Mn2vCaeY";
+      const ATTENDANCE_API_URL = "https://script.google.com/macros/s/AKfycbyftfQzXMNqiljsj6cscREUbiiMFnfC97wumV3qz8k-hoVUuxbSJkKu2czq36Trjry8/exec";
+      // UAT static page. Only the UAT API endpoint is allowed.
+      let employeeProfile = null;
+      let pendingRequest = null;
+      try { pendingRequest=JSON.parse(sessionStorage.getItem('mv-uat-request') || 'null'); } catch (_) { sessionStorage.removeItem('mv-uat-request'); }
+      let submitting = false;
+      function googleReplyOrigin(origin) {
+        return origin === 'https://script.google.com' || origin === 'https://script.googleusercontent.com' || /^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(origin);
+      }
+      function replyFromFrame(root, source, depth=0) {
+        if (root === source) return true;
+        if (!root || depth > 4) return false;
+        try { for(let i=0;i<Math.min(root.length,10);i++) if(replyFromFrame(root.frames[i],source,depth+1)) return true; } catch (_) {}
+        return false;
+      }
+      function rpc(payload) {
+        return new Promise((resolve,reject)=>{
+          const idToken=liff.getIDToken();
+          if(!idToken) { reject(new Error('กรุณาเข้าสู่ LINE ใหม่')); return; }
+          if(!ATTENDANCE_API_URL.startsWith('https://script.google.com/macros/s/') || !ATTENDANCE_API_URL.endsWith('/exec')) {reject(new Error('ระบบทดสอบยังตั้งค่าไม่ครบ'));return;}
+          const callId=crypto.randomUUID(), nonce=Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
+          const frame=document.createElement('iframe');frame.name='mv_'+callId;frame.className='hidden';document.body.appendChild(frame);
+          let timer;
+          const clean=()=>{clearTimeout(timer);window.removeEventListener('message',receive);frame.remove();};
+          const receive=event=>{
+            const d=event.data;
+            if(!googleReplyOrigin(event.origin) || !replyFromFrame(frame.contentWindow,event.source) || !d || d.type!=='MV_UAT_RPC' || d.nonce!==nonce || d.callId!==callId || !d.result || typeof d.result.ok!=='boolean')return;
+            clean();resolve(d.result);
+          };
+          window.addEventListener('message',receive);
+          timer=setTimeout(()=>{clean();reject(new Error('รอผลเกินเวลา กรุณาตรวจสถานะคำขอเดิม'));},45000);
+          const form=document.createElement('form');form.method='POST';form.action=ATTENDANCE_API_URL;form.target=frame.name;form.className='hidden';
+          const input=document.createElement('input');input.type='hidden';input.name='payload';input.value=JSON.stringify({...payload,idToken,responseNonce:nonce,callId});form.appendChild(input);document.body.appendChild(form);
+          try{form.submit();}catch(_){clean();reject(new Error('ส่งข้อมูลไม่สำเร็จ กรุณาตรวจสถานะก่อนส่งใหม่'));}finally{form.remove();}
+        });
+      }
+      async function registerEmployee() {
+        if (submitting) return;
+        const inviteCode = document.getElementById('inviteCode').value.trim();
+        submitting=true;
+        try {
+          const r=await rpc({action:'register',inviteCode});
+          statusElement.textContent=r.message;
+        } catch(e) { showError(e.message); }
+        finally { submitting=false; }
+      }
+      function registrationPage(message) {
+        statusElement.innerHTML='<strong>MissVill OS — ระบบทดสอบ</strong><p>'+escapeHtml(message)+'</p><label>รหัสเชิญส่วนตัวจากผู้ดูแล<input id="inviteCode" autocomplete="off" maxlength="32" style="width:100%;padding:12px"></label><button class="action-button" onclick="registerEmployee()">ส่งคำขอลงทะเบียน</button><p class="hint">ผู้ดูแลจะตรวจตัวบุคคลก่อนผูกบัญชี กรุณาอย่าส่งรหัสนี้ให้ผู้อื่น</p>';
+      }
+      async function checkPending() {
+        if (!pendingRequest || submitting) return;
+        submitting=true;
+        try {
+          const r=await rpc({action:'status',requestId:pendingRequest.requestId});
+          if(r.ok && r.recorded) { finish(r); return; }
+          if(!r.ok) { showError(r.message); return; }
+          statusElement.textContent=r.message;
+          const button=document.createElement('button'); button.className='action-button'; button.textContent='ถ่ายรูปและส่งคำขอเดิมอีกครั้ง';
+          button.onclick=()=>{currentAction=pendingRequest.action;showAttendanceStartPage();}; statusElement.appendChild(button);
+        } catch(e) { showError(e.message); }
+        finally { submitting=false; }
+      }
+      const statusElement = document.getElementById("status");
+      const profileImageElement = document.getElementById("profileImage");
+
+      let currentProfile = null;
+      let currentAction = "home";
+      let currentLocation = null;
+      let cameraStream = null;
+      let capturedPhoto = null;
+      let selectedLocation = null;
+
+      function escapeHtml(value) {
+        const div = document.createElement("div");
+        div.textContent = value || "";
+        return div.innerHTML;
+      }
+
+      function showError(message) {
+        stopCamera();
+        statusElement.className = "status error";
+        statusElement.innerHTML =
+          "<strong>เกิดข้อผิดพลาด</strong><br><br>" +
+          escapeHtml(message).replace(/\n/g, "<br>");
+        if(employeeProfile) {
+          const b=document.createElement('button');b.className='secondary-button';
+          b.textContent=pendingRequest?'ตรวจสถานะคำขอเดิม':'กลับหน้าเช็กอิน';
+          b.onclick=pendingRequest?checkPending:showAttendanceStartPage;statusElement.appendChild(b);
+        }
+      }
+
+      function readAction() {
+        const params = new URLSearchParams(window.location.search);
+        let action = params.get("action");
+
+        if (!action) {
+          const liffState = params.get("liff.state");
+
+          if (liffState) {
+            const decodedState = decodeURIComponent(liffState);
+            const stateQuery = decodedState.includes("?")
+              ? decodedState.split("?")[1]
+              : decodedState;
+
+            action = new URLSearchParams(stateQuery).get("action");
+          }
+        }
+
+        return action || "home";
+      }
+
+      async function startApp() {
+        try {
+          if (typeof liff === "undefined") {
+            throw new Error("ไม่พบ LINE LIFF SDK");
+          }
+
+          if(LIFF_ID === "UAT_LIFF_PENDING") throw new Error("กำลังเตรียมระบบ UAT กรุณารอผู้ดูแลตั้งค่าให้ครบ");
+          statusElement.textContent = "กำลังเชื่อมต่อกับ LINE...";
+
+          await liff.init({
+            liffId: LIFF_ID,
+            withLoginOnExternalBrowser: true,
+          });
+
+          if (!liff.isLoggedIn()) {
+            liff.login({
+              redirectUri: window.location.href,
+            });
+            return;
+          }
+
+          currentAction = readAction();
+          currentProfile = await liff.getProfile();
+          const verified=await rpc({action:'profile'});
+          if(!verified.ok) {
+            if(verified.code==='NOT_REGISTERED') registrationPage(verified.message);
+            else showError(verified.message);
+            return;
+          }
+          employeeProfile=verified;
+          if(pendingRequest) { await checkPending(); return; }
+
+          if (currentProfile.pictureUrl) {
+            profileImageElement.src = currentProfile.pictureUrl;
+            profileImageElement.style.display = "inline-block";
+          }
+
+          if (currentAction === "clockin" || currentAction === "clockout") {
+            showAttendanceStartPage();
+            return;
+          }
+
+          if (currentAction === "history") {
+            showComingSoon("ประวัติการเข้างาน");
+            return;
+          }
+
+          if (currentAction === "leave") {
+            showComingSoon("คำขอลา");
+            return;
+          }
+
+          statusElement.className = "status";
+          statusElement.innerHTML = `
+            <strong>เชื่อมต่อ LINE สำเร็จ</strong><br><br>
+            ชื่อพนักงาน: ${escapeHtml(employeeProfile.employeeName)}<br><br>
+            <button class="action-button" onclick="currentAction='clockin';showAttendanceStartPage()">เช็กอิน (ทดสอบ)</button>
+            <button class="secondary-button" onclick="currentAction='clockout';showAttendanceStartPage()">เช็กเอาต์ (ทดสอบ)</button>
+          `;
+        } catch (error) {
+          console.error("LIFF ERROR:", error);
+
+          const code = error && error.code ? error.code : "NO_CODE";
+          const message =
+            error && error.message
+              ? error.message
+              : "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
+
+          showError(`Code: ${code}\nMessage: ${message}`);
+        }
+      }
+
+      function showAttendanceStartPage() {
+        const label = currentAction === "clockin" ? "Clock In" : "Clock Out";
+        const buttonLabel =
+          currentAction === "clockin"
+            ? "เริ่มเช็กอินเข้างาน"
+            : "เริ่มเช็กเอาต์ออกงาน";
+
+        statusElement.className = "status";
+        statusElement.innerHTML = `
+          <strong>${label}</strong><br><br>
+          สวัสดี ${escapeHtml(employeeProfile.employeeName)} · ระบบทดสอบ<br><br>
+          <label>สถานที่ <select id="locationChoice">${employeeProfile.locations.map(id=>'<option value="'+escapeHtml(id)+'"'+(id===employeeProfile.defaultLocation?' selected':'')+'>'+escapeHtml(id)+'</option>').join('')}</select></label><br><br>
+          <button class="action-button" onclick="requestLocationAndCamera()">
+            ${buttonLabel}
+          </button>
+          <p class="hint">ระบบจะขอ GPS และเปิดกล้องหน้าเพื่อถ่ายรูปสด</p>
+        `;
+      }
+
+      function requestLocationAndCamera() {
+        selectedLocation = document.getElementById('locationChoice').value;
+        if (!navigator.geolocation) {
+          showError("โทรศัพท์เครื่องนี้ไม่รองรับ GPS");
+          return;
+        }
+
+        statusElement.className = "status";
+        statusElement.textContent = "กำลังอ่านตำแหน่ง GPS...";
+
+        navigator.geolocation.getCurrentPosition(
+          async function (position) {
+            currentLocation = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              locationAt: position.timestamp,
+            };
+
+            try {
+              await showLiveCamera();
+            } catch (error) {
+              showError(
+                "ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องใน LINE แล้วลองใหม่: " +
+                  (error.message || error)
+              );
+            }
+          },
+          function (error) {
+            showError("ไม่สามารถอ่าน GPS ได้: " + error.message);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          }
+        );
+      }
+
+      async function showLiveCamera() {
+        capturedPhoto = null;
+        stopCamera();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("อุปกรณ์นี้ไม่รองรับการเปิดกล้องสด");
+        }
+
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: "user",
+            width: { ideal: 720 },
+            height: { ideal: 960 },
+          },
+        });
+
+        statusElement.className = "status";
+        statusElement.innerHTML = `
+          <strong>ถ่ายรูปยืนยันตัวตน</strong>
+
+          <div class="gps-info">
+            GPS พร้อม · ความแม่นยำ ${Math.round(currentLocation.accuracy)} เมตร
+          </div>
+
+          <div class="camera-wrap">
+            <video id="cameraVideo" autoplay muted playsinline></video>
+            <canvas id="photoCanvas" class="hidden"></canvas>
+            <img
+              id="photoPreview"
+              class="photo-preview hidden"
+              alt="ภาพยืนยันตัวตน"
+            />
+          </div>
+
+          <button
+            id="captureButton"
+            class="action-button"
+            onclick="capturePhoto()"
+          >
+            ถ่ายรูป
+          </button>
+
+          <button
+            id="retakeButton"
+            class="secondary-button hidden"
+            onclick="retakePhoto()"
+          >
+            ถ่ายใหม่
+          </button>
+
+          <button
+            id="confirmButton"
+            class="action-button hidden"
+            style="margin-top: 10px"
+            onclick="confirmAttendance()"
+          >
+            ยืนยัน ${currentAction === "clockin" ? "Clock In" : "Clock Out"}
+          </button>
+
+          <p class="hint">
+            ใช้กล้องสดเท่านั้น ไม่มีปุ่มเลือกรูปจากอัลบั้ม
+          </p>
+        `;
+
+        const video = document.getElementById("cameraVideo");
+        video.srcObject = cameraStream;
+        await video.play();
+      }
+
+      function capturePhoto() {
+        const video = document.getElementById("cameraVideo");
+        const canvas = document.getElementById("photoCanvas");
+        const preview = document.getElementById("photoPreview");
+
+        if (!video || video.readyState < 2) {
+          showError("กล้องยังไม่พร้อม กรุณารอสักครู่แล้วลองใหม่");
+          return;
+        }
+
+        const targetWidth = 600;
+        const targetHeight = Math.round(
+          targetWidth * (video.videoHeight / video.videoWidth)
+        );
+
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+
+        const context = canvas.getContext("2d");
+        context.save();
+        context.translate(targetWidth, 0);
+        context.scale(-1, 1);
+        context.drawImage(video, 0, 0, targetWidth, targetHeight);
+        context.restore();
+
+        capturedPhoto = canvas.toDataURL("image/jpeg", 0.78);
+        preview.src = capturedPhoto;
+
+        video.classList.add("hidden");
+        preview.classList.remove("hidden");
+
+        document.getElementById("captureButton").classList.add("hidden");
+        document.getElementById("retakeButton").classList.remove("hidden");
+        document.getElementById("confirmButton").classList.remove("hidden");
+
+        stopCamera();
+      }
+
+      async function retakePhoto() {
+        try { await showLiveCamera(); } catch(e) { showError(e.message); }
+      }
+
+      function freshPosition() {
+        return new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(p=>resolve({latitude:p.coords.latitude,longitude:p.coords.longitude,accuracy:p.coords.accuracy,locationAt:p.timestamp}),()=>reject(new Error('อ่าน GPS ไม่สำเร็จ กรุณาอนุญาตตำแหน่ง')), {enableHighAccuracy:true,timeout:15000,maximumAge:0}));
+      }
+      async function confirmAttendance() {
+        if(submitting || !capturedPhoto || !employeeProfile) return;
+        submitting=true;
+        try {
+          currentLocation=await freshPosition();
+          if(!pendingRequest) {
+            pendingRequest={action:currentAction,requestId:'mv_'+crypto.randomUUID()};
+            sessionStorage.setItem('mv-uat-request',JSON.stringify(pendingRequest));
+          }
+          if(pendingRequest.action!==currentAction) throw new Error('กรุณาตรวจสถานะคำขอเดิมก่อน');
+          const payload={...pendingRequest, ...currentLocation, locationId:selectedLocation,photoDataUrl:capturedPhoto,userAgent:navigator.userAgent};
+          statusElement.textContent='กำลังบันทึกในระบบทดสอบ กรุณารอสักครู่';
+          const r=await rpc(payload);
+          if(r.ok) finish(r);
+          else if(['SERVER','WRITE_UNCERTAIN','BUSY'].includes(r.code)) uncertain(r.message);
+          else {
+            pendingRequest=null; sessionStorage.removeItem('mv-uat-request');
+            showError(r.message);
+          }
+        } catch(e) { if(pendingRequest) uncertain(e.message); else showError(e.message); }
+        finally { submitting=false; }
+      }
+      function uncertain(message) {
+        statusElement.textContent=message+' · อย่าสร้างรายการใหม่จนกว่าจะตรวจสถานะ';
+        const b=document.createElement('button');b.className='action-button';b.textContent='ตรวจสถานะคำขอเดิม';b.onclick=checkPending;statusElement.appendChild(b);
+      }
+      function finish(r) {
+        pendingRequest=null; capturedPhoto=null; sessionStorage.removeItem('mv-uat-request');stopCamera();
+        statusElement.className='status success';
+        statusElement.innerHTML='<strong>'+escapeHtml(r.message)+'</strong><p>'+escapeHtml(r.employeeName)+'</p><p>'+escapeHtml(r.serverTime)+'</p><p>เลขรายการ '+escapeHtml(r.attendanceId)+'</p><p>ข้อมูลนี้เป็นรายการทดสอบ</p>';
+      }
+      function stopCamera() {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+          cameraStream = null;
+        }
+      }
+
+      function showComingSoon(title) {
+        statusElement.className = "status";
+        statusElement.innerHTML = `
+          <strong>${escapeHtml(title)}</strong><br><br>
+          กำลังพัฒนาหน้านี้
+        `;
+      }
+
+
+      window.addEventListener("pagehide", stopCamera);
+      window.addEventListener("beforeunload", stopCamera);
+      window.addEventListener("load", startApp);
+    </script>
+  </body>
+</html>
