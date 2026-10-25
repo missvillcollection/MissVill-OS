@@ -148,36 +148,25 @@
       let pendingRequest = null;
       try { pendingRequest=JSON.parse(sessionStorage.getItem('mv-uat-request') || 'null'); } catch (_) { sessionStorage.removeItem('mv-uat-request'); }
       let submitting = false;
-      function googleReplyOrigin(origin) {
-        return origin === 'https://script.google.com' || origin === 'https://script.googleusercontent.com' || /^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(origin);
-      }
-      function replyFromFrame(root, source, depth=0) {
-        if (root === source) return true;
-        if (!root || depth > 4) return false;
-        try { for(let i=0;i<Math.min(root.length,10);i++) if(replyFromFrame(root.frames[i],source,depth+1)) return true; } catch (_) {}
-        return false;
-      }
-      function rpc(payload) {
-        return new Promise((resolve,reject)=>{
-          const idToken=liff.getIDToken();
-          if(!idToken) { reject(new Error('กรุณาเข้าสู่ LINE ใหม่')); return; }
-          if(!ATTENDANCE_API_URL.startsWith('https://script.google.com/macros/s/') || !ATTENDANCE_API_URL.endsWith('/exec')) {reject(new Error('ระบบทดสอบยังตั้งค่าไม่ครบ'));return;}
-          const callId=crypto.randomUUID(), nonce=Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
-          const frame=document.createElement('iframe');frame.name='mv_'+callId;frame.className=new URLSearchParams(location.search).has('uatDebug')?'':'hidden';document.body.appendChild(frame);
-          let timer;
-          const clean=()=>{clearTimeout(timer);window.removeEventListener('message',receive);frame.remove();};
-          const receive=event=>{
-            const d=event.data;
-            if(d && d.type==='MV_UAT_RPC') console.warn('UAT callback checks',JSON.stringify({origin:event.origin,source:replyFromFrame(frame.contentWindow,event.source),nonce:d.nonce===nonce,call:d.callId===callId}));
-            if(!googleReplyOrigin(event.origin) || !replyFromFrame(frame.contentWindow,event.source) || !d || d.type!=='MV_UAT_RPC' || d.nonce!==nonce || d.callId!==callId || !d.result || typeof d.result.ok!=='boolean')return;
-            clean();resolve(d.result);
-          };
-          window.addEventListener('message',receive);
-          timer=setTimeout(()=>{clean();reject(new Error('รอผลเกินเวลา กรุณาตรวจสถานะคำขอเดิม'));},45000);
-          const form=document.createElement('form');form.method='POST';form.action=ATTENDANCE_API_URL;form.target=frame.name;form.className='hidden';
-          const input=document.createElement('input');input.type='hidden';input.name='payload';input.value=JSON.stringify({...payload,idToken,responseNonce:nonce,callId});form.appendChild(input);document.body.appendChild(form);
-          try{form.submit();}catch(_){clean();reject(new Error('ส่งข้อมูลไม่สำเร็จ กรุณาตรวจสถานะก่อนส่งใหม่'));}finally{form.remove();}
-        });
+      async function rpc(payload) {
+        const idToken=liff.getIDToken();
+        if(!idToken) throw new Error('กรุณาเข้าสู่ LINE ใหม่');
+        if(!ATTENDANCE_API_URL.startsWith('https://script.google.com/macros/s/') || !ATTENDANCE_API_URL.endsWith('/exec')) throw new Error('ระบบทดสอบยังตั้งค่าไม่ครบ');
+        const controller=new AbortController();
+        const timer=setTimeout(()=>controller.abort(),45000);
+        try {
+          const response=await fetch(ATTENDANCE_API_URL,{
+            method:'POST',credentials:'omit',redirect:'follow',signal:controller.signal,
+            body:new URLSearchParams({payload:JSON.stringify({...payload,idToken})})
+          });
+          if(!response.ok) throw new Error('ติดต่อระบบไม่สำเร็จ กรุณาตรวจสถานะก่อนส่งใหม่');
+          const result=await response.json();
+          if(!result || typeof result.ok!=='boolean') throw new Error('คำตอบจากระบบไม่ถูกต้อง กรุณาตรวจสถานะก่อนส่งใหม่');
+          return result;
+        } catch(error) {
+          if(error.name==='AbortError') throw new Error('รอผลเกินเวลา กรุณาตรวจสถานะคำขอเดิม');
+          throw error;
+        } finally {clearTimeout(timer);}
       }
       async function registerEmployee() {
         if (submitting) return;
