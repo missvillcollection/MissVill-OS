@@ -163,11 +163,12 @@
           if(!idToken) { reject(new Error('กรุณาเข้าสู่ LINE ใหม่')); return; }
           if(!ATTENDANCE_API_URL.startsWith('https://script.google.com/macros/s/') || !ATTENDANCE_API_URL.endsWith('/exec')) {reject(new Error('ระบบทดสอบยังตั้งค่าไม่ครบ'));return;}
           const callId=crypto.randomUUID(), nonce=Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
-          const frame=document.createElement('iframe');frame.name='mv_'+callId;frame.className='hidden';document.body.appendChild(frame);
+          const frame=document.createElement('iframe');frame.name='mv_'+callId;frame.className=new URLSearchParams(location.search).has('uatDebug')?'':'hidden';document.body.appendChild(frame);
           let timer;
           const clean=()=>{clearTimeout(timer);window.removeEventListener('message',receive);frame.remove();};
           const receive=event=>{
             const d=event.data;
+            if(d && d.type==='MV_UAT_RPC') console.warn('UAT callback checks',JSON.stringify({origin:event.origin,source:replyFromFrame(frame.contentWindow,event.source),nonce:d.nonce===nonce,call:d.callId===callId}));
             if(!googleReplyOrigin(event.origin) || !replyFromFrame(frame.contentWindow,event.source) || !d || d.type!=='MV_UAT_RPC' || d.nonce!==nonce || d.callId!==callId || !d.result || typeof d.result.ok!=='boolean')return;
             clean();resolve(d.result);
           };
