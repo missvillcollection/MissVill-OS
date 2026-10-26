@@ -168,17 +168,7 @@
           throw error;
         } finally {clearTimeout(timer);}
       }
-      async function registerEmployee() {
-        if (submitting) return;
-        const inviteCode = document.getElementById('inviteCode').value.trim();
-        submitting=true;
-        try {
-          const r=await rpc({action:'register',inviteCode});
-          statusElement.textContent=r.message;
-        } catch(e) { showError(e.message); }
-        finally { submitting=false; }
-      }
-      function registrationPage(message) {
+      async function registerEmployee() { if(submitting) return; const inviteCode=document.getElementById('inviteCode').value.trim(); submitting=true; try { const r=await rpc({action:'register',inviteCode}); if(r.ok) { statusElement.className='status success'; statusElement.textContent=r.message; } else { registrationPage(r.message); } } catch(e) { registrationPage(e.message); } finally { submitting=false; } }       function registrationPage(message) {
         statusElement.innerHTML='<strong>MissVill OS — ระบบทดสอบ</strong><p>'+escapeHtml(message)+'</p><label>รหัสเชิญส่วนตัวจากผู้ดูแล<input id="inviteCode" autocomplete="off" maxlength="32" style="width:100%;padding:12px"></label><button class="action-button" onclick="registerEmployee()">ส่งคำขอลงทะเบียน</button><p class="hint">ผู้ดูแลจะตรวจตัวบุคคลก่อนผูกบัญชี กรุณาอย่าส่งรหัสนี้ให้ผู้อื่น</p>';
       }
       async function checkPending() {
