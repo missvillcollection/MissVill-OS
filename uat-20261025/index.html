@@ -168,7 +168,23 @@
           throw error;
         } finally {clearTimeout(timer);}
       }
-      async function registerEmployee() { if(submitting) return; const inviteCode=document.getElementById('inviteCode').value.trim(); submitting=true; try { const r=await rpc({action:'register',inviteCode}); if(r.ok) { statusElement.className='status success'; statusElement.textContent=r.message; } else { registrationPage(r.message); } } catch(e) { registrationPage(e.message); } finally { submitting=false; } }       function registrationPage(message) {
+      async function registerEmployee() {
+        if (submitting) return;
+        const inviteCode = document.getElementById('inviteCode').value.trim();
+        submitting=true;
+        try {
+          const r=await rpc({action:'register',inviteCode});
+          if(r.ok) {
+            statusElement.className='status success';
+            statusElement.textContent=r.message;
+          } else {
+            registrationPage(r.message);
+          }
+        } catch(e) { registrationPage(e.message); }
+        finally { submitting=false; }
+      }
+      function registrationPage(message) {
+        statusElement.className='status';
         statusElement.innerHTML='<strong>MissVill OS — ระบบทดสอบ</strong><p>'+escapeHtml(message)+'</p><label>รหัสเชิญส่วนตัวจากผู้ดูแล<input id="inviteCode" autocomplete="off" maxlength="32" style="width:100%;padding:12px"></label><button class="action-button" onclick="registerEmployee()">ส่งคำขอลงทะเบียน</button><p class="hint">ผู้ดูแลจะตรวจตัวบุคคลก่อนผูกบัญชี กรุณาอย่าส่งรหัสนี้ให้ผู้อื่น</p>';
       }
       async function checkPending() {
@@ -276,22 +292,16 @@
           }
 
           if (currentAction === "history") {
-            showComingSoon("ประวัติการเข้างาน");
+            showHistory();
             return;
           }
 
           if (currentAction === "leave") {
-            showComingSoon("คำขอลา");
+            showLeave();
             return;
           }
 
-          statusElement.className = "status";
-          statusElement.innerHTML = `
-            <strong>เชื่อมต่อ LINE สำเร็จ</strong><br><br>
-            ชื่อพนักงาน: ${escapeHtml(employeeProfile.employeeName)}<br><br>
-            <button class="action-button" onclick="currentAction='clockin';showAttendanceStartPage()">เช็กอิน (ทดสอบ)</button>
-            <button class="secondary-button" onclick="currentAction='clockout';showAttendanceStartPage()">เช็กเอาต์ (ทดสอบ)</button>
-          `;
+          showStaffHome();
         } catch (error) {
           console.error("LIFF ERROR:", error);
 
@@ -491,7 +501,8 @@
           const payload={...pendingRequest, ...currentLocation, locationId:selectedLocation,photoDataUrl:capturedPhoto,userAgent:navigator.userAgent};
           statusElement.textContent='กำลังบันทึกในระบบทดสอบ กรุณารอสักครู่';
           const r=await rpc(payload);
-          if(r.ok) finish(r);
+          if(r.ok && r.recorded === true && r.attendanceId) finish(r);
+          else if(r.ok) uncertain('คำตอบยังไม่ยืนยันรายการที่บันทึก');
           else if(['SERVER','WRITE_UNCERTAIN','BUSY'].includes(r.code)) uncertain(r.message);
           else {
             pendingRequest=null; sessionStorage.removeItem('mv-uat-request');
@@ -524,6 +535,55 @@
         `;
       }
 
+
+let historyMonth='',historyOffset=0;
+let pendingLeave=null;
+try { pendingLeave=JSON.parse(sessionStorage.getItem('mv-uat-leave')||'null'); } catch(_) {}
+function selfNav() { return '<button class="secondary-button" onclick="showStaffHome()">กลับเมนู</button>'; }
+function showStaffHome() {
+  stopCamera();currentAction='home';statusElement.className='status';
+  statusElement.innerHTML='<strong>'+escapeHtml(employeeProfile.employeeName)+'</strong><p>ระบบทดสอบ</p><button class="action-button" onclick="currentAction=\'clockin\';showAttendanceStartPage()">เช็กอิน</button><button class="secondary-button" onclick="currentAction=\'clockout\';showAttendanceStartPage()">เช็กเอาต์</button><button class="secondary-button" onclick="showHistory()">ประวัติเข้า–ออกของฉัน</button><button class="secondary-button" onclick="showLeave()">คำขอลาของฉัน</button>';
+}
+async function showHistory(month,offset=0) {
+  stopCamera(); currentAction='history';
+  historyMonth=month||historyMonth||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit'}).format(new Date()).replace(/\//g,'-');
+  // Avoid locale-dependent month order.
+  if(!/^\d{4}-\d{2}$/.test(historyMonth)) {const parts=new Intl.DateTimeFormat('en',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit'}).formatToParts(new Date());historyMonth=parts.find(x=>x.type==='year').value+'-'+parts.find(x=>x.type==='month').value;}
+  historyOffset=offset;statusElement.className='status';statusElement.textContent='กำลังอ่านประวัติของคุณ…';
+  try {
+    const r=await rpc({action:'history',month:historyMonth,offset});if(!r.ok) throw new Error(r.message);
+    statusElement.innerHTML='<strong>ประวัติเข้า–ออก · '+escapeHtml(employeeProfile.employeeName)+'</strong><p><label>เดือน <input type="month" id="historyMonth" value="'+historyMonth+'"></label><button class="secondary-button" onclick="showHistory(document.getElementById(\'historyMonth\').value)">ดูเดือนนี้</button></p><p>'+r.total+' รายการ · เวลาประเทศไทย</p>'+(r.items.length?r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:14px 0"><strong>'+escapeHtml(x.date)+'</strong><p>เข้า '+escapeHtml(x.clockIn||'ไม่พบเวลา')+' · ออก '+escapeHtml(x.clockOut||'ยังไม่มีเวลาออก')+'</p><p>'+escapeHtml(x.location)+' · '+(x.hours===null?'ยังไม่มีชั่วโมงทำงาน':escapeHtml(String(x.hours))+' ชั่วโมง')+'</p><small>'+escapeHtml(x.status)+'</small></article>').join(''):'<p>ไม่มีรายการในเดือนนี้</p>')+(offset?'<button class="secondary-button" onclick="showHistory(historyMonth,Math.max(0,historyOffset-50))">ก่อนหน้า</button>':'')+(r.nextOffset!==null?'<button class="secondary-button" onclick="showHistory(historyMonth,historyOffset+50)">ถัดไป</button>':'')+selfNav();
+  } catch(e) {statusElement.textContent=e.message;const b=document.createElement('button');b.className='secondary-button';b.textContent='ลองใหม่';b.onclick=()=>showHistory(historyMonth,offset);statusElement.appendChild(b);}
+}
+async function showLeave() {
+  stopCamera();currentAction='leave';statusElement.className='status';statusElement.textContent='กำลังอ่านคำขอลาของคุณ…';
+  try {
+    const r=await rpc({action:'leaveList'});if(!r.ok)throw new Error(r.message);
+    statusElement.innerHTML='<strong>คำขอลาของฉัน</strong><p>คำขอจะรอผู้ดูแลอนุมัติ ยังไม่หักสิทธิ์วันลา</p>'+(pendingLeave?'<p>มีคำขอที่ยังยืนยันผลไม่ได้</p><button class="action-button" onclick="submitLeave()">ส่งคำขอเดิมอีกครั้ง</button>':'<button class="action-button" onclick="leaveForm()">ขอลาเต็มวัน</button>')+(r.items.length?r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:14px 0"><strong>'+escapeHtml(x.type)+'</strong><p>'+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+'</p><p>'+escapeHtml(x.status)+'</p><p>'+escapeHtml(x.reason)+'</p>'+(x.reviewNote?'<p>ผู้ดูแล: '+escapeHtml(x.reviewNote)+'</p>':'')+'</article>').join(''):'<p>ยังไม่มีคำขอลา</p>')+(r.total>100?'<p>แสดง 100 คำขอล่าสุด</p>':'')+selfNav();
+  }catch(e){statusElement.textContent=e.message;const b=document.createElement('button');b.textContent='ลองใหม่';b.className='secondary-button';b.onclick=showLeave;statusElement.appendChild(b);}
+}
+function leaveForm() {
+  if(pendingLeave){showLeave();return;}
+  statusElement.innerHTML='<strong>ขอลาเต็มวัน · ระบบทดสอบ</strong><p>จำนวนวันตามปฏิทิน รวมวันหยุด ผู้ดูแลจะตรวจสิทธิ์ก่อนอนุมัติ</p><form id="leaveForm"><label>ประเภท <select id="leaveType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option></select></label><p><label>เริ่มลา <input type="date" id="leaveStart" required></label></p><p><label>สิ้นสุด <input type="date" id="leaveEnd" required></label></p><label>เหตุผล <textarea id="leaveReason" required maxlength="1000" style="width:100%;min-height:100px"></textarea></label><button class="action-button" type="submit">ส่งคำขอให้ผู้ดูแล</button></form><button class="secondary-button" onclick="showLeave()">กลับรายการคำขอ</button>';
+  document.getElementById('leaveForm').onsubmit=e=>{e.preventDefault();submitLeave();};
+}
+async function submitLeave() {
+  if(submitting)return;
+  if(!pendingLeave){
+    const startDate=document.getElementById('leaveStart').value,endDate=document.getElementById('leaveEnd').value,reason=document.getElementById('leaveReason').value.trim();
+    if(!startDate||!endDate||startDate>endDate||!reason){alert('กรุณาตรวจวันที่และเหตุผล');return;}
+    pendingLeave={action:'leaveRequest',requestId:'lv_'+crypto.randomUUID(),leaveType:document.getElementById('leaveType').value,startDate,endDate,reason};
+    sessionStorage.setItem('mv-uat-leave',JSON.stringify(pendingLeave));
+  }
+  submitting=true;statusElement.textContent='กำลังส่งคำขอ…';
+  try {
+    const r=await rpc(pendingLeave);
+    if(r.ok&&r.recorded===true&&r.item&&r.item.requestId===pendingLeave.requestId){pendingLeave=null;sessionStorage.removeItem('mv-uat-leave');await showLeave();}
+    else if(!r.ok&&!['SERVER','WRITE_UNCERTAIN','BUSY'].includes(r.code)){pendingLeave=null;sessionStorage.removeItem('mv-uat-leave');statusElement.textContent=r.message;const b=document.createElement('button');b.textContent='กลับรายการคำขอ';b.className='secondary-button';b.onclick=showLeave;statusElement.appendChild(b);}
+    else throw new Error(r.message||'ยังยืนยันผลไม่ได้');
+  }catch(e){statusElement.innerHTML='<p>'+escapeHtml(e.message)+'</p><p>ยังยืนยันผลไม่ได้ กรุณาใช้คำขอเดิมเพื่อป้องกันรายการซ้ำ</p><button class="action-button" onclick="submitLeave()">ส่งคำขอเดิมอีกครั้ง</button>'+selfNav();}
+  finally{submitting=false;}
+}
 
       window.addEventListener("pagehide", stopCamera);
       window.addEventListener("beforeunload", stopCamera);
