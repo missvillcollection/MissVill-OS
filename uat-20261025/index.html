@@ -279,6 +279,7 @@
             return;
           }
           employeeProfile=verified;
+          if(currentAction==='admin'){await showAdminAttendance();return;}
           if(pendingRequest) { await checkPending(); return; }
 
           if (currentProfile.pictureUrl) {
@@ -536,13 +537,38 @@
       }
 
 
+let adminViewItems=[],adminOffset=0,adminFilter='pending',adminEmployee='',adminStart='',adminEnd='',adminOpen=false,adminBusy=false,pendingDecision=null;
+try{pendingDecision=JSON.parse(sessionStorage.getItem('mv-admin-decision')||'null');}catch(_){}
+function adminNav(){return '<button class="secondary-button" onclick="showAdminAttendance()">ตรวจเข้า–ออก</button><button class="secondary-button" onclick="showAdminLeaves(\'pending\')">คำขอลารออนุมัติ</button><button class="secondary-button" onclick="showAdminLeaves(\'history\')">ประวัติการลา</button>'+selfNav();}
+function adminError(message,retry){statusElement.innerHTML='<p role="alert">'+escapeHtml(message)+'</p>'+adminNav();if(retry){const b=document.createElement('button');b.className='action-button';b.textContent='ตรวจผลด้วยคำสั่งเดิม';b.onclick=()=>sendAdminDecision();statusElement.appendChild(b);}}
+function todayBangkok(){const p=new Intl.DateTimeFormat('en',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());return ['year','month','day'].map(k=>p.find(x=>x.type===k).value).join('-');}
+async function showAdminAttendance(offset=0){
+ if(!employeeProfile.canAdmin){showError('ไม่มีสิทธิ์ผู้ดูแล');return;}
+ stopCamera();adminOffset=offset;adminStart=adminStart||todayBangkok();adminEnd=adminEnd||adminStart;statusElement.textContent='กำลังอ่านรายการเข้า–ออก…';
+ try{const r=await rpc({action:'adminAttendance',startDate:adminStart,endDate:adminEnd,employeeId:adminEmployee,openOnly:adminOpen,offset});if(!r.ok)throw new Error(r.message);
+ statusElement.className='status';statusElement.innerHTML='<strong>ผู้ดูแล · ตรวจเข้า–ออก</strong><p><label>จาก <input type="date" id="adminStart" value="'+adminStart+'"></label> <label>ถึง <input type="date" id="adminEnd" value="'+adminEnd+'"></label></p><label>พนักงาน <select id="adminEmployee"><option value="">ทุกคน</option>'+r.employees.map(x=>'<option value="'+escapeHtml(x.id)+'"'+(x.id===adminEmployee?' selected':'')+'>'+escapeHtml(x.name)+' · '+escapeHtml(x.id)+'</option>').join('')+'</select></label><p><label><input type="checkbox" id="adminOpen"'+(adminOpen?' checked':'')+'> เฉพาะยังไม่ออก</label></p><button class="action-button" onclick="applyAdminAttendance()">ดูรายการ</button><p>'+r.total+' รายการ · ยังไม่ออก '+r.openCount+' รายการในช่วงที่เลือก</p><p class="hint">ชั่วโมงตามข้อมูลที่บันทึก ไม่คำนวณเงินเดือน OT หรือหักพัก</p>'+r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:16px 0"><strong>'+escapeHtml(x.employeeName)+' · '+escapeHtml(x.employeeId)+'</strong><p>'+escapeHtml(x.date)+' · '+escapeHtml(x.location||'ไม่มีข้อมูลสถานที่')+'</p><p>เข้า '+escapeHtml(x.clockIn||'ไม่มีเวลา')+' · ออก '+escapeHtml(x.clockOut||'ยังไม่ออก')+'</p><p>'+(x.hours===null?'ไม่มีชั่วโมงบันทึก':escapeHtml(String(x.hours))+' ชั่วโมง')+'</p></article>').join('')+(r.items.length?'':'<p>ไม่พบรายการ</p>')+(offset?'<button class="secondary-button" onclick="showAdminAttendance(Math.max(0,adminOffset-50))">ก่อนหน้า</button>':'')+(r.nextOffset!==null?'<button class="secondary-button" onclick="showAdminAttendance(adminOffset+50)">ถัดไป</button>':'')+adminNav();
+ }catch(e){adminError(e.message);}
+}
+function applyAdminAttendance(){adminStart=document.getElementById('adminStart').value;adminEnd=document.getElementById('adminEnd').value;adminEmployee=document.getElementById('adminEmployee').value;adminOpen=document.getElementById('adminOpen').checked;showAdminAttendance();}
+async function showAdminLeaves(filter='pending',offset=0){
+ if(!employeeProfile.canAdmin){showError('ไม่มีสิทธิ์ผู้ดูแล');return;}
+ if(pendingDecision&&pendingDecision.ownerEmployeeId!==employeeProfile.employeeId){pendingDecision=null;sessionStorage.removeItem('mv-admin-decision');}
+ if(pendingDecision){adminError('มีผลตัดสินที่ยังยืนยันไม่ได้ กรุณาตรวจผลคำสั่งเดิมก่อน',true);return;}
+ adminFilter=filter;adminOffset=offset;statusElement.textContent='กำลังอ่านคำขอลา…';
+ try{const r=await rpc({action:'adminLeaves',status:filter,offset});if(!r.ok)throw new Error(r.message);adminViewItems=r.items;
+ statusElement.innerHTML='<strong>'+(filter==='pending'?'คำขอลารออนุมัติ':'ประวัติการลา')+'</strong><p>'+r.total+' รายการ</p>'+r.items.map((x,i)=>'<article style="text-align:left;border-top:1px solid #ddd;padding:16px 0"><strong>'+escapeHtml(x.employeeName)+' · '+escapeHtml(x.employeeId)+'</strong><p>'+escapeHtml(x.type)+' · '+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+'</p><p>'+escapeHtml(String(x.days))+' วันตามปฏิทิน · '+escapeHtml(x.status)+'</p><p>'+escapeHtml(x.reason)+'</p>'+(x.actor?'<small>ผู้ดำเนินการ '+escapeHtml(x.actor)+' · '+escapeHtml(x.decidedAt)+'</small>':'')+(x.reviewNote?'<p>หมายเหตุ: '+escapeHtml(x.reviewNote)+'</p>':'')+(x.canDecide?'<button class="action-button" onclick="reviewAdminDecision('+i+',\'approve\')">อนุมัติ</button><button class="secondary-button" onclick="reviewAdminDecision('+i+',\'reject\')">ปฏิเสธ</button>':'<p class="hint">'+escapeHtml(x.blockedReason||'รายการนี้ไม่เปิดให้ตัดสินซ้ำ')+'</p>')+'</article>').join('')+(r.items.length?'':'<p>ไม่มีรายการ</p>')+(offset?'<button class="secondary-button" onclick="showAdminLeaves(adminFilter,Math.max(0,adminOffset-50))">ก่อนหน้า</button>':'')+(r.nextOffset!==null?'<button class="secondary-button" onclick="showAdminLeaves(adminFilter,adminOffset+50)">ถัดไป</button>':'')+adminNav();
+ }catch(e){adminError(e.message);}
+}
+function reviewAdminDecision(i,decision){const x=adminViewItems[i];if(!x||!x.canDecide)return;const label=decision==='approve'?'อนุมัติ':'ปฏิเสธ';statusElement.innerHTML='<strong>ยืนยัน'+label+'คำขอลา</strong><p>'+escapeHtml(x.employeeName)+' · '+escapeHtml(x.type)+'</p><p>'+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+'</p><p>'+escapeHtml(x.reason)+'</p><label>หมายเหตุผู้ดูแล<textarea id="decisionNote" maxlength="1000" style="width:100%;min-height:100px"></textarea></label><p class="hint">ผลจะบันทึกชื่อผู้ดำเนินการและเวลา ไม่หักสิทธิ์วันลาอัตโนมัติ</p><button id="confirmDecision" class="action-button">ยืนยัน'+label+'</button><button class="secondary-button" onclick="showAdminLeaves(adminFilter,adminOffset)">กลับ</button>';document.getElementById('confirmDecision').onclick=()=>{const note=document.getElementById('decisionNote').value.trim();if(!note){alert('กรุณาระบุหมายเหตุ');return;}pendingDecision={action:'adminDecide',ownerEmployeeId:employeeProfile.employeeId,decisionId:'ad_'+crypto.randomUUID(),leaveId:x.leaveId,decision,note,expectedStatus:'รออนุมัติ',expectedRevision:x.revision};sessionStorage.setItem('mv-admin-decision',JSON.stringify(pendingDecision));sendAdminDecision();};}
+async function sendAdminDecision(){if(adminBusy||!pendingDecision)return;if(pendingDecision.ownerEmployeeId!==employeeProfile.employeeId){pendingDecision=null;sessionStorage.removeItem('mv-admin-decision');showAdminLeaves();return;}adminBusy=true;statusElement.textContent='กำลังบันทึกผลและหลักฐาน…';try{const r=await rpc(pendingDecision);if(r.ok&&r.recorded===true&&r.decisionId===pendingDecision.decisionId){pendingDecision=null;sessionStorage.removeItem('mv-admin-decision');await showAdminLeaves('history');}else if(!r.ok&&!['SERVER','WRITE_UNCERTAIN','BUSY'].includes(r.code)){pendingDecision=null;sessionStorage.removeItem('mv-admin-decision');adminError(r.message);}else throw new Error(r.message||'ยังยืนยันผลไม่ได้');}catch(e){adminError(e.message,true);}finally{adminBusy=false;}}
+
 let historyMonth='',historyOffset=0;
 let pendingLeave=null;
 try { pendingLeave=JSON.parse(sessionStorage.getItem('mv-uat-leave')||'null'); } catch(_) {}
 function selfNav() { return '<button class="secondary-button" onclick="showStaffHome()">กลับเมนู</button>'; }
 function showStaffHome() {
   stopCamera();currentAction='home';statusElement.className='status';
-  statusElement.innerHTML='<strong>'+escapeHtml(employeeProfile.employeeName)+'</strong><p>ระบบทดสอบ</p><button class="action-button" onclick="currentAction=\'clockin\';showAttendanceStartPage()">เช็กอิน</button><button class="secondary-button" onclick="currentAction=\'clockout\';showAttendanceStartPage()">เช็กเอาต์</button><button class="secondary-button" onclick="showHistory()">ประวัติเข้า–ออกของฉัน</button><button class="secondary-button" onclick="showLeave()">คำขอลาของฉัน</button>';
+  statusElement.innerHTML='<strong>'+escapeHtml(employeeProfile.employeeName)+'</strong><p>ระบบทดสอบ</p><button class="action-button" onclick="currentAction=\'clockin\';showAttendanceStartPage()">เช็กอิน</button><button class="secondary-button" onclick="currentAction=\'clockout\';showAttendanceStartPage()">เช็กเอาต์</button><button class="secondary-button" onclick="showHistory()">ประวัติเข้า–ออกของฉัน</button><button class="secondary-button" onclick="showLeave()">คำขอลาของฉัน</button>'+(employeeProfile.canAdmin?'<button class="action-button" onclick="showAdminAttendance()">หน้าผู้ดูแล</button>':'');
 }
 async function showHistory(month,offset=0) {
   stopCamera(); currentAction='history';
