@@ -216,7 +216,7 @@ async function showLeave() {
   stopCamera();currentAction='leave';statusElement.className='status';statusElement.textContent='กำลังอ่านคำขอลาของคุณ…';
   try {
     const r=await rpc({action:'leaveList'});if(!r.ok)throw new Error(r.message);
-    statusElement.innerHTML='<strong>คำขอลาของฉัน</strong><p>คำขอจะรอผู้ดูแลอนุมัติ ยังไม่หักสิทธิ์วันลา</p>'+(pendingLeave?'<p>มีคำขอที่ยังยืนยันผลไม่ได้</p><button class="action-button" onclick="submitLeave()">ส่งคำขอเดิมอีกครั้ง</button>':'<button class="action-button" onclick="leaveForm()">ขอลางาน</button>')+(r.items.length?r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:14px 0"><strong>'+escapeHtml(x.type)+'</strong><p>'+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+' · '+leavePeriodLabel(x.period)+' ('+escapeHtml(String(x.days))+' วัน)</p><p>'+escapeHtml(x.status)+'</p><p>'+escapeHtml(x.reason)+'</p>'+leaveAttachmentLink(x)+(x.reviewNote?'<p>ผู้ดูแล: '+escapeHtml(x.reviewNote)+'</p>':'')+'</article>').join(''):'<p>ยังไม่มีคำขอลา</p>')+(r.total>100?'<p>แสดง 100 คำขอล่าสุด</p>':'')+selfNav();
+    statusElement.innerHTML='<strong>คำขอลาของฉัน</strong><p>คำขอจะรอผู้ดูแลอนุมัติ ยังไม่หักสิทธิ์วันลา</p>'+(pendingLeave?'<p>มีคำขอที่ยังยืนยันผลไม่ได้</p><button class="action-button" onclick="submitLeave()">ส่งคำขอเดิมอีกครั้ง</button>':'<button class="action-button" onclick="leaveForm()">ขอลางาน</button>')+(r.items.length?r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:14px 0"><strong>'+escapeHtml(x.type)+'</strong><p>'+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+' · '+leavePeriodLabel(x.period)+' ('+escapeHtml(String(x.days))+' วัน)</p><p>'+escapeHtml(x.status==='อนุมัติ'?'อนุมัติลา':x.status)+'</p><p>'+escapeHtml(x.reason)+'</p>'+leaveAttachmentLink(x)+'</article>').join(''):'<p>ยังไม่มีคำขอลา</p>')+(r.total>100?'<p>แสดง 100 คำขอล่าสุด</p>':'')+selfNav();
   }catch(e){statusElement.textContent=e.message;const b=document.createElement('button');b.textContent='ลองใหม่';b.className='secondary-button';b.onclick=showLeave;statusElement.appendChild(b);}
 }
 function leaveForm() {
@@ -737,3 +737,4 @@ async function submitLeave() {
     </script>
   </body>
 </html>
+
