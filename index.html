@@ -145,6 +145,118 @@
       const ATTENDANCE_API_URL =
         "https://script.google.com/macros/s/AKfycbyY1OP8umg--3Fio6SBH_76Oyqxeva78wWC-XE0TLlnPGilsSTEWDwre3w_FFn-3gOZCw/exec";
 
+      let employeeProfile=null,submitting=false;
+      async function rpc(payload) {
+        const idToken=liff.getIDToken();
+        if(!idToken) throw new Error('กรุณาเข้าสู่ LINE ใหม่');
+        if(!ATTENDANCE_API_URL.startsWith('https://script.google.com/macros/s/') || !ATTENDANCE_API_URL.endsWith('/exec')) throw new Error('ระบบทดสอบยังตั้งค่าไม่ครบ');
+        const controller=new AbortController();
+        const timer=setTimeout(()=>controller.abort(),45000);
+        try {
+          const response=await fetch(ATTENDANCE_API_URL,{
+            method:'POST',credentials:'omit',redirect:'follow',signal:controller.signal,
+            body:new URLSearchParams({payload:JSON.stringify({...payload,idToken})})
+          });
+          if(!response.ok) throw new Error('ติดต่อระบบไม่สำเร็จ กรุณาตรวจสถานะก่อนส่งใหม่');
+          const result=await response.json();
+          if(!result || typeof result.ok!=='boolean') throw new Error('คำตอบจากระบบไม่ถูกต้อง กรุณาตรวจสถานะก่อนส่งใหม่');
+          return result;
+        } catch(error) {
+          if(error.name==='AbortError') throw new Error('รอผลเกินเวลา กรุณาตรวจสถานะคำขอเดิม');
+          throw error;
+        } finally {clearTimeout(timer);}
+      }
+
+let adminViewItems=[],adminOffset=0,adminFilter='pending',adminEmployee='',adminStart='',adminEnd='',adminOpen=false,adminBusy=false,pendingDecision=null;
+try{pendingDecision=JSON.parse(sessionStorage.getItem('mv-prod-admin-decision')||'null');}catch(_){}
+function adminNav(){return '<button class="secondary-button" onclick="showAdminAttendance()">ตรวจเข้า–ออก</button><button class="secondary-button" onclick="showAdminLeaves(\'pending\')">คำขอลารออนุมัติ</button><button class="secondary-button" onclick="showAdminLeaves(\'history\')">ประวัติการลา</button>'+selfNav();}
+function adminError(message,retry){statusElement.innerHTML='<p role="alert">'+escapeHtml(message)+'</p>'+adminNav();if(retry){const b=document.createElement('button');b.className='action-button';b.textContent='ตรวจผลด้วยคำสั่งเดิม';b.onclick=()=>sendAdminDecision();statusElement.appendChild(b);}}
+function todayBangkok(){const p=new Intl.DateTimeFormat('en',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());return ['year','month','day'].map(k=>p.find(x=>x.type===k).value).join('-');}
+async function showAdminAttendance(offset=0){
+ if(!employeeProfile.canAdmin){showError('ไม่มีสิทธิ์ผู้ดูแล');return;}
+ stopCamera();adminOffset=offset;adminStart=adminStart||todayBangkok();adminEnd=adminEnd||adminStart;statusElement.textContent='กำลังอ่านรายการเข้า–ออก…';
+ try{const r=await rpc({action:'adminAttendance',startDate:adminStart,endDate:adminEnd,employeeId:adminEmployee,openOnly:adminOpen,offset});if(!r.ok)throw new Error(r.message);
+ statusElement.className='status';statusElement.innerHTML='<strong>ผู้ดูแล · ตรวจเข้า–ออก</strong><p><label>จาก <input type="date" id="adminStart" value="'+adminStart+'"></label> <label>ถึง <input type="date" id="adminEnd" value="'+adminEnd+'"></label></p><label>พนักงาน <select id="adminEmployee"><option value="">ทุกคน</option>'+r.employees.map(x=>'<option value="'+escapeHtml(x.id)+'"'+(x.id===adminEmployee?' selected':'')+'>'+escapeHtml(x.name)+' · '+escapeHtml(x.id)+'</option>').join('')+'</select></label><p><label><input type="checkbox" id="adminOpen"'+(adminOpen?' checked':'')+'> เฉพาะยังไม่ออก</label></p><button class="action-button" onclick="applyAdminAttendance()">ดูรายการ</button><p>'+r.total+' รายการ · ยังไม่ออก '+r.openCount+' รายการในช่วงที่เลือก</p><p class="hint">ชั่วโมงตามข้อมูลที่บันทึก ไม่คำนวณเงินเดือน OT หรือหักพัก</p>'+r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:16px 0"><strong>'+escapeHtml(x.employeeName)+' · '+escapeHtml(x.employeeId)+'</strong><p>'+escapeHtml(x.date)+' · '+escapeHtml(x.location||'ไม่มีข้อมูลสถานที่')+'</p><p>เข้า '+escapeHtml(x.clockIn||'ไม่มีเวลา')+' · ออก '+escapeHtml(x.clockOut||'ยังไม่ออก')+'</p><p>'+(x.hours===null?'ไม่มีชั่วโมงบันทึก':escapeHtml(String(x.hours))+' ชั่วโมง')+'</p></article>').join('')+(r.items.length?'':'<p>ไม่พบรายการ</p>')+(offset?'<button class="secondary-button" onclick="showAdminAttendance(Math.max(0,adminOffset-50))">ก่อนหน้า</button>':'')+(r.nextOffset!==null?'<button class="secondary-button" onclick="showAdminAttendance(adminOffset+50)">ถัดไป</button>':'')+adminNav();
+ }catch(e){adminError(e.message);}
+}
+function applyAdminAttendance(){adminStart=document.getElementById('adminStart').value;adminEnd=document.getElementById('adminEnd').value;adminEmployee=document.getElementById('adminEmployee').value;adminOpen=document.getElementById('adminOpen').checked;showAdminAttendance();}
+async function showAdminLeaves(filter='pending',offset=0){
+ if(!employeeProfile.canAdmin){showError('ไม่มีสิทธิ์ผู้ดูแล');return;}
+ if(pendingDecision&&pendingDecision.ownerEmployeeId!==employeeProfile.employeeId){pendingDecision=null;sessionStorage.removeItem('mv-prod-admin-decision');}
+ if(pendingDecision){adminError('มีผลตัดสินที่ยังยืนยันไม่ได้ กรุณาตรวจผลคำสั่งเดิมก่อน',true);return;}
+ adminFilter=filter;adminOffset=offset;statusElement.textContent='กำลังอ่านคำขอลา…';
+ try{const r=await rpc({action:'adminLeaves',status:filter,offset});if(!r.ok)throw new Error(r.message);adminViewItems=r.items;
+ statusElement.innerHTML='<strong>'+(filter==='pending'?'คำขอลารออนุมัติ':'ประวัติการลา')+'</strong><p>'+r.total+' รายการ</p>'+r.items.map((x,i)=>'<article style="text-align:left;border-top:1px solid #ddd;padding:16px 0"><strong>'+escapeHtml(x.employeeName)+' · '+escapeHtml(x.employeeId)+'</strong><p>'+escapeHtml(x.type)+' · '+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+'</p><p>'+escapeHtml(String(x.days))+' วัน · '+leavePeriodLabel(x.period)+' · วันตามปฏิทิน · '+escapeHtml(x.status)+'</p><p>'+escapeHtml(x.reason)+'</p>'+leaveAttachmentLink(x)+(x.actor?'<small>ผู้ดำเนินการ '+escapeHtml(x.actor)+' · '+escapeHtml(x.decidedAt)+'</small>':'')+(x.reviewNote?'<p>หมายเหตุ: '+escapeHtml(x.reviewNote)+'</p>':'')+(x.canDecide?'<button class="action-button" onclick="reviewAdminDecision('+i+',\'approve\')">อนุมัติ</button><button class="secondary-button" onclick="reviewAdminDecision('+i+',\'reject\')">ปฏิเสธ</button>':'<p class="hint">'+escapeHtml(x.blockedReason||'รายการนี้ไม่เปิดให้ตัดสินซ้ำ')+'</p>')+'</article>').join('')+(r.items.length?'':'<p>ไม่มีรายการ</p>')+(offset?'<button class="secondary-button" onclick="showAdminLeaves(adminFilter,Math.max(0,adminOffset-50))">ก่อนหน้า</button>':'')+(r.nextOffset!==null?'<button class="secondary-button" onclick="showAdminLeaves(adminFilter,adminOffset+50)">ถัดไป</button>':'')+adminNav();
+ }catch(e){adminError(e.message);}
+}
+function reviewAdminDecision(i,decision){const x=adminViewItems[i];if(!x||!x.canDecide)return;const label=decision==='approve'?'อนุมัติ':'ปฏิเสธ';statusElement.innerHTML='<strong>ยืนยัน'+label+'คำขอลา</strong><p>'+escapeHtml(x.employeeName)+' · '+escapeHtml(x.type)+'</p><p>'+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+' · '+leavePeriodLabel(x.period)+'</p><p>'+escapeHtml(x.reason)+'</p><label>หมายเหตุผู้ดูแล<textarea id="decisionNote" maxlength="1000" style="width:100%;min-height:100px"></textarea></label><p class="hint">ผลจะบันทึกชื่อผู้ดำเนินการและเวลา ไม่หักสิทธิ์วันลาอัตโนมัติ</p><button id="confirmDecision" class="action-button">ยืนยัน'+label+'</button><button class="secondary-button" onclick="showAdminLeaves(adminFilter,adminOffset)">กลับ</button>';document.getElementById('confirmDecision').onclick=()=>{const note=document.getElementById('decisionNote').value.trim();if(!note){alert('กรุณาระบุหมายเหตุ');return;}pendingDecision={action:'adminDecide',ownerEmployeeId:employeeProfile.employeeId,decisionId:'ad_'+crypto.randomUUID(),leaveId:x.leaveId,decision,note,expectedStatus:'รออนุมัติ',expectedRevision:x.revision};sessionStorage.setItem('mv-prod-admin-decision',JSON.stringify(pendingDecision));sendAdminDecision();};}
+async function sendAdminDecision(){if(adminBusy||!pendingDecision)return;if(pendingDecision.ownerEmployeeId!==employeeProfile.employeeId){pendingDecision=null;sessionStorage.removeItem('mv-prod-admin-decision');showAdminLeaves();return;}adminBusy=true;statusElement.textContent='กำลังบันทึกผลและหลักฐาน…';try{const r=await rpc(pendingDecision);if(r.ok&&r.recorded===true&&r.decisionId===pendingDecision.decisionId){pendingDecision=null;sessionStorage.removeItem('mv-prod-admin-decision');await showAdminLeaves('history');}else if(!r.ok&&!['SERVER','WRITE_UNCERTAIN','BUSY'].includes(r.code)){pendingDecision=null;sessionStorage.removeItem('mv-prod-admin-decision');adminError(r.message);}else throw new Error(r.message||'ยังยืนยันผลไม่ได้');}catch(e){adminError(e.message,true);}finally{adminBusy=false;}}
+
+let historyMonth='',historyOffset=0;
+let pendingLeave=null;
+try { pendingLeave=JSON.parse(sessionStorage.getItem('mv-prod-leave')||'null'); } catch(_) {}
+function selfNav() { return '<button class="secondary-button" onclick="showStaffHome()">กลับเมนู</button>'; }
+function showStaffHome() {
+  stopCamera();currentAction='home';statusElement.className='status';
+  statusElement.innerHTML='<strong>'+escapeHtml(employeeProfile.employeeName)+'</strong><p></p><button class="action-button" onclick="currentAction=\'clockin\';showAttendanceStartPage()">เช็กอิน</button><button class="secondary-button" onclick="currentAction=\'clockout\';showAttendanceStartPage()">เช็กเอาต์</button><button class="secondary-button" onclick="showHistory()">ประวัติเข้า–ออกของฉัน</button><button class="secondary-button" onclick="showLeave()">คำขอลาของฉัน</button>'+(employeeProfile.canAdmin?'<button class="action-button" onclick="showAdminAttendance()">หน้าผู้ดูแล</button>':'');
+}
+async function showHistory(month,offset=0) {
+  stopCamera(); currentAction='history';
+  historyMonth=month||historyMonth||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit'}).format(new Date()).replace(/\//g,'-');
+  // Avoid locale-dependent month order.
+  if(!/^\d{4}-\d{2}$/.test(historyMonth)) {const parts=new Intl.DateTimeFormat('en',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit'}).formatToParts(new Date());historyMonth=parts.find(x=>x.type==='year').value+'-'+parts.find(x=>x.type==='month').value;}
+  historyOffset=offset;statusElement.className='status';statusElement.textContent='กำลังอ่านประวัติของคุณ…';
+  try {
+    const r=await rpc({action:'history',month:historyMonth,offset});if(!r.ok) throw new Error(r.message);
+    statusElement.innerHTML='<strong>ประวัติเข้า–ออก · '+escapeHtml(employeeProfile.employeeName)+'</strong><p><label>เดือน <input type="month" id="historyMonth" value="'+historyMonth+'"></label><button class="secondary-button" onclick="showHistory(document.getElementById(\'historyMonth\').value)">ดูเดือนนี้</button></p><p>'+r.total+' รายการ · เวลาประเทศไทย</p>'+(r.items.length?r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:14px 0"><strong>'+escapeHtml(x.date)+'</strong><p>เข้า '+escapeHtml(x.clockIn||'ไม่พบเวลา')+' · ออก '+escapeHtml(x.clockOut||'ยังไม่มีเวลาออก')+'</p><p>'+escapeHtml(x.location||'ไม่มีข้อมูลสถานที่ในรายการเดิม')+' · '+(x.hours===null?'ยังไม่มีชั่วโมงทำงาน':escapeHtml(String(x.hours))+' ชั่วโมง')+'</p><small>'+escapeHtml(x.status)+'</small></article>').join(''):'<p>ไม่มีรายการในเดือนนี้</p>')+(offset?'<button class="secondary-button" onclick="showHistory(historyMonth,Math.max(0,historyOffset-50))">ก่อนหน้า</button>':'')+(r.nextOffset!==null?'<button class="secondary-button" onclick="showHistory(historyMonth,historyOffset+50)">ถัดไป</button>':'')+selfNav();
+  } catch(e) {statusElement.textContent=e.message;const b=document.createElement('button');b.className='secondary-button';b.textContent='ลองใหม่';b.onclick=()=>showHistory(historyMonth,offset);statusElement.appendChild(b);}
+}
+async function showLeave() {
+  if(pendingLeave&&pendingLeave.ownerEmployeeId!==employeeProfile.employeeId){pendingLeave=null;sessionStorage.removeItem('mv-prod-leave');}
+  stopCamera();currentAction='leave';statusElement.className='status';statusElement.textContent='กำลังอ่านคำขอลาของคุณ…';
+  try {
+    const r=await rpc({action:'leaveList'});if(!r.ok)throw new Error(r.message);
+    statusElement.innerHTML='<strong>คำขอลาของฉัน</strong><p>คำขอจะรอผู้ดูแลอนุมัติ ยังไม่หักสิทธิ์วันลา</p>'+(pendingLeave?'<p>มีคำขอที่ยังยืนยันผลไม่ได้</p><button class="action-button" onclick="submitLeave()">ส่งคำขอเดิมอีกครั้ง</button>':'<button class="action-button" onclick="leaveForm()">ขอลางาน</button>')+(r.items.length?r.items.map(x=>'<article style="text-align:left;border-top:1px solid #ddd;padding:14px 0"><strong>'+escapeHtml(x.type)+'</strong><p>'+escapeHtml(x.startDate)+' ถึง '+escapeHtml(x.endDate)+' · '+leavePeriodLabel(x.period)+' ('+escapeHtml(String(x.days))+' วัน)</p><p>'+escapeHtml(x.status)+'</p><p>'+escapeHtml(x.reason)+'</p>'+leaveAttachmentLink(x)+(x.reviewNote?'<p>ผู้ดูแล: '+escapeHtml(x.reviewNote)+'</p>':'')+'</article>').join(''):'<p>ยังไม่มีคำขอลา</p>')+(r.total>100?'<p>แสดง 100 คำขอล่าสุด</p>':'')+selfNav();
+  }catch(e){statusElement.textContent=e.message;const b=document.createElement('button');b.textContent='ลองใหม่';b.className='secondary-button';b.onclick=showLeave;statusElement.appendChild(b);}
+}
+function leaveForm() {
+  if(pendingLeave){showLeave();return;}
+  statusElement.innerHTML='<strong>ขอลางาน</strong><p>เต็มวันนับตามปฏิทินรวมวันหยุด ครึ่งวันนับ 0.5 วัน ผู้ดูแลจะตรวจสิทธิ์ก่อนอนุมัติ</p><form id="leaveForm"><label>ประเภท <select id="leaveType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option></select></label><p><label>ช่วงเวลา <select id="leavePeriod"><option value="full">เต็มวัน</option><option value="am">ครึ่งวันเช้า</option><option value="pm">ครึ่งวันบ่าย</option></select></label></p><p><label>เริ่มลา <input type="date" id="leaveStart" required></label></p><p><label>สิ้นสุด <input type="date" id="leaveEnd" required></label></p><label>เหตุผล <textarea id="leaveReason" required maxlength="1000" style="width:100%;min-height:100px"></textarea></label><p><label>ไฟล์แนบ (ไม่บังคับ) <input id="leaveAttachment" type="file" accept="image/jpeg,image/png,application/pdf"></label></p><p class="hint">JPG, PNG หรือ PDF ไม่เกิน 2 MB เก็บเป็นไฟล์ส่วนตัวสำหรับผู้ดูแล</p><button class="action-button" type="submit">ส่งคำขอให้ผู้ดูแล</button></form><button class="secondary-button" onclick="showLeave()">กลับรายการคำขอ</button>';
+  document.getElementById('leaveForm').onsubmit=e=>{e.preventDefault();submitLeave();};
+}
+function leavePeriodLabel(period){return period==='am'?'ครึ่งวันเช้า':period==='pm'?'ครึ่งวันบ่าย':'เต็มวัน';}
+function leaveAttachmentLink(item){
+  const url=item.attachmentUrl||'';
+  return /^https:\/\/drive\.google\.com\/file\/d\/[a-zA-Z0-9_-]+\/view(?:\?.*)?$/.test(url)?'<p><a target="_blank" rel="noopener noreferrer" href="'+escapeHtml(url)+'">เปิดไฟล์แนบ (ต้องมีสิทธิ์ Google Drive)</a></p>':'';
+}
+function readLeaveFile(file){
+  if(!file)return Promise.resolve(null);
+  if(!['image/jpeg','image/png','application/pdf'].includes(file.type)||!file.size||file.size>2*1024*1024)return Promise.reject(new Error('เลือก JPG, PNG หรือ PDF ขนาดไม่เกิน 2 MB'));
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(new Error('อ่านไฟล์แนบไม่ได้'));reader.onload=()=>resolve({dataUrl:reader.result});reader.readAsDataURL(file);});
+}
+async function submitLeave() {
+  if(submitting)return;
+  if(pendingLeave&&pendingLeave.ownerEmployeeId!==employeeProfile.employeeId){pendingLeave=null;sessionStorage.removeItem('mv-prod-leave');showLeave();return;}
+  submitting=true;
+  try {
+    if(!pendingLeave){
+      const startDate=document.getElementById('leaveStart').value,endDate=document.getElementById('leaveEnd').value,reason=document.getElementById('leaveReason').value.trim(),period=document.getElementById('leavePeriod').value;
+      if(!startDate||!endDate||startDate>endDate||!reason||reason.length>1000){alert('กรุณาตรวจวันที่และเหตุผล');return;}
+      if(period!=='full'&&startDate!==endDate){alert('ลาครึ่งวันต้องเป็นวันเดียวกัน');return;}
+      const attachment=await readLeaveFile(document.getElementById('leaveAttachment').files[0]);
+      pendingLeave={ownerEmployeeId:employeeProfile.employeeId,action:'leaveRequest',requestId:'lv_'+crypto.randomUUID(),leaveType:document.getElementById('leaveType').value,startDate,endDate,reason,period,attachment};
+      try{sessionStorage.setItem('mv-prod-leave',JSON.stringify(pendingLeave));}catch(_){pendingLeave=null;throw new Error('พื้นที่บันทึกคำขอไม่พอ กรุณาลดขนาดไฟล์แนบแล้วส่งใหม่');}
+    }
+    statusElement.textContent='กำลังส่งคำขอ…';
+    const r=await rpc(pendingLeave);
+    if(r.ok&&r.recorded===true&&r.item&&r.item.requestId===pendingLeave.requestId){pendingLeave=null;sessionStorage.removeItem('mv-prod-leave');await showLeave();}
+    else if(!r.ok&&!['SERVER','WRITE_UNCERTAIN','BUSY'].includes(r.code)){pendingLeave=null;sessionStorage.removeItem('mv-prod-leave');statusElement.textContent=r.message;const b=document.createElement('button');b.textContent='กลับรายการคำขอ';b.className='secondary-button';b.onclick=showLeave;statusElement.appendChild(b);}
+    else throw new Error(r.message||'ยังยืนยันผลไม่ได้');
+  }catch(e){statusElement.innerHTML='<p>'+escapeHtml(e.message)+'</p>'+(pendingLeave?'<p>ยังยืนยันผลไม่ได้ กรุณาใช้คำขอเดิมเพื่อป้องกันรายการซ้ำ</p><button class="action-button" onclick="submitLeave()">ส่งคำขอเดิมอีกครั้ง</button>':'<button class="secondary-button" onclick="leaveForm()">กลับแบบฟอร์ม</button>')+selfNav();}
+  finally{submitting=false;}
+}
+
+
       const statusElement = document.getElementById("status");
       const profileImageElement = document.getElementById("profileImage");
 
@@ -221,21 +333,21 @@
             return;
           }
 
+          const verified=await rpc({action:'selfProfile'});
+          if(!verified.ok) throw new Error(verified.message);
+          employeeProfile=verified;
+          if(currentAction==='admin'){await showAdminAttendance();return;}
           if (currentAction === "history") {
-            showComingSoon("ประวัติการเข้างาน");
+            showHistory();
             return;
           }
 
           if (currentAction === "leave") {
-            showComingSoon("คำขอลา");
+            showLeave();
             return;
           }
 
-          statusElement.className = "status";
-          statusElement.innerHTML = `
-            <strong>เชื่อมต่อ LINE สำเร็จ</strong><br><br>
-            ชื่อ: ${escapeHtml(currentProfile.displayName)}
-          `;
+          showStaffHome();
         } catch (error) {
           console.error("LIFF ERROR:", error);
 
@@ -246,6 +358,11 @@
               : "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ";
 
           showError(`Code: ${code}\nMessage: ${message}`);
+          if(currentProfile){
+            const actions=document.createElement('div');
+            actions.innerHTML='<button class="action-button" onclick="currentAction=\'clockin\';showAttendanceStartPage()">Clock In</button><button class="secondary-button" onclick="currentAction=\'clockout\';showAttendanceStartPage()">Clock Out</button>';
+            statusElement.appendChild(actions);
+          }
         }
       }
 
