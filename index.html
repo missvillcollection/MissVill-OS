@@ -423,40 +423,66 @@ async function submitLeave() {
   }
 }
 
+      let gpsRequestId = 0;
+      function showGpsError(code) {
+        const message = code === 1
+          ? 'LINE ยังไม่ได้รับอนุญาตให้ใช้ตำแหน่ง กรุณาเปิดสิทธิ์ตำแหน่งของ LINE แล้วลองใหม่'
+          : code === 3
+          ? 'ค้นหาตำแหน่งไม่ทันเวลา กรุณาตรวจว่าเปิดตำแหน่งและอินเทอร์เน็ต แล้วลองใหม่ใกล้หน้าต่างหรือบริเวณที่รับสัญญาณได้ดี'
+          : 'ยังอ่านตำแหน่งไม่ได้ กรุณาตรวจการเปิดตำแหน่งและสัญญาณอินเทอร์เน็ต แล้วลองใหม่';
+        showError(message);
+        const help = document.createElement('p');
+        help.className = 'hint';
+        help.textContent = 'Android: การตั้งค่าเครื่อง → แอป → LINE → สิทธิ์ → ตำแหน่ง → อนุญาตขณะใช้แอป และเปิดตำแหน่งที่แม่นยำ (ชื่อเมนูอาจต่างกันตามรุ่น)';
+        statusElement.appendChild(help);
+        const retry = document.createElement('button');
+        retry.className = 'action-button';
+        retry.textContent = 'ลองอ่านตำแหน่งอีกครั้ง';
+        retry.onclick = requestLocationAndCamera;
+        statusElement.appendChild(retry);
+        const back = document.createElement('button');
+        back.className = 'secondary-button';
+        back.textContent = 'กลับเลือกสถานที่ทำงาน';
+        back.onclick = showAttendanceStartPage;
+        statusElement.appendChild(back);
+      }
       function requestLocationAndCamera() {
+        const requestId = ++gpsRequestId;
+        const action = currentAction;
+        currentLocation = null;
+        capturedPhoto = null;
         if (!navigator.geolocation) {
-          showError("โทรศัพท์เครื่องนี้ไม่รองรับ GPS");
+          showError('โทรศัพท์เครื่องนี้ไม่รองรับการอ่านตำแหน่ง กรุณาเปิดผ่าน LINE ที่อัปเดตแล้ว');
           return;
         }
-
-        statusElement.className = "status";
-        statusElement.textContent = "กำลังอ่านตำแหน่ง GPS...";
-
+        statusElement.className = 'status';
+        statusElement.textContent = 'กำลังอ่านตำแหน่ง GPS… อาจใช้เวลาสูงสุด 30 วินาที กรุณาเปิดหน้านี้ไว้';
         navigator.geolocation.getCurrentPosition(
           async function (position) {
+            if (requestId !== gpsRequestId || action !== currentAction) return;
+            const coords = position.coords;
+            if (!coords || !Number.isFinite(coords.latitude) || !Number.isFinite(coords.longitude) ||
+                !Number.isFinite(coords.accuracy) || coords.accuracy < 0 ||
+                Math.abs(coords.latitude) > 90 || Math.abs(coords.longitude) > 180) {
+              showGpsError(2);
+              return;
+            }
             currentLocation = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: Math.round(position.coords.accuracy),
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+              accuracy: Math.round(coords.accuracy),
             };
-
             try {
               await showLiveCamera();
             } catch (error) {
-              showError(
-                "ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องใน LINE แล้วลองใหม่: " +
-                  (error.message || error)
-              );
+              showError('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องใน LINE แล้วลองใหม่: ' + (error.message || error));
             }
           },
           function (error) {
-            showError("ไม่สามารถอ่าน GPS ได้: " + error.message);
+            if (requestId !== gpsRequestId || action !== currentAction) return;
+            showGpsError(error.code);
           },
-          {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0,
-          }
+          { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
         );
       }
 
@@ -737,4 +763,5 @@ async function submitLeave() {
     </script>
   </body>
 </html>
+
 
